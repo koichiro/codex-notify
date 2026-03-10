@@ -1,30 +1,31 @@
 # codex-notify
 
-`codex-notify` is a small CLI tool that reads Codex execution logs and posts them into a Slack thread.
+`codex-notify` is a small CLI tool that tails Codex session log files and posts compact Slack notifications.
 
-It is intended for lightweight run visibility: one root Slack message per run, then thread replies for turns, assistant messages, failures, and optionally tool events.
+It is intended for lightweight run visibility: one small monitoring-start message, then one Slack thread per new user prompt with the corresponding Codex responses attached.
 
 ## Purpose
 
-- Send Codex run progress to Slack without building a separate service
-- Preserve the original event payloads instead of summarizing them
-- Keep one run grouped in a single Slack thread
+- Send Codex conversations to Slack without building a separate service
+- Keep Slack notifications focused on prompts and responses
+- Start a fresh Slack thread for each new user prompt
 
 ## How It Works
 
 1. The script loads configuration from `.env`, environment variables, and CLI flags.
-2. It posts a root Slack message containing the working directory and prompt.
-3. It reads Codex execution logs.
-4. It converts selected events into Slack thread replies.
-5. It optionally includes noisy tool events such as command execution and file changes.
+2. It posts a small root Slack message showing that monitoring has started.
+3. It finds a Codex session log file under `~/.codex/sessions` or uses the file you specify.
+4. It tails that log from the end, so existing history is not reposted on startup.
+5. Each newly detected user prompt is posted as a new Slack thread root.
+6. Codex responses and optional tool events are posted into that prompt's thread.
 
 ## Supported Behavior
 
-- Root thread message with run title, current working directory, and prompt
+- One monitoring-start message with run title and working directory
+- One new Slack thread for each new user prompt
 - Thread replies for:
-  - `turn.started`
-  - `turn.failed`
-  - `item.completed` assistant/user messages
+  - assistant responses
+  - concise failure notices
 - Optional thread replies for:
   - `command_execution`
   - `file_change`
@@ -64,7 +65,7 @@ Variables:
 
 - `SLACK_BOT_TOKEN`: Slack bot token used for `chat.postMessage`
 - `SLACK_CHANNEL`: Slack channel ID to receive the run thread
-- `CODEX_PROMPT`: Optional fallback prompt shown in the root message
+- `CODEX_PROMPT`: Optional initial prompt to post as a user message when monitoring begins
 
 CLI flags override environment variables.
 
@@ -72,7 +73,7 @@ CLI flags override environment variables.
 
 ### Running With Codex
 
-`codex-notify` reads Codex execution logs directly, so piping Codex output into this tool is not required.
+`codex-notify` reads Codex session logs directly, so piping Codex output into this tool is not required.
 
 Codex should still be started with `--no-alt-screen`, because that is the supported way to keep its execution output compatible with this workflow.
 
@@ -94,6 +95,20 @@ Run `codex-notify` separately:
 python codex-notify.py
 ```
 
+Monitor a specific session file:
+
+```bash
+python codex-notify.py --session-file ~/.codex/sessions/2026/03/10/rollout-....jsonl
+```
+
+Process the current contents once and exit:
+
+```bash
+python codex-notify.py --once
+```
+
+In normal follow mode, `codex-notify` starts from the end of the session log and only posts prompts and responses appended after the monitor starts.
+
 With explicit flags:
 
 ```bash
@@ -114,6 +129,12 @@ Using a custom env file:
 
 ```bash
 python codex-notify.py --env-file .env.local
+```
+
+Using a custom sessions directory:
+
+```bash
+python codex-notify.py --sessions-dir ~/.codex/sessions
 ```
 
 Without `--no-alt-screen`, Codex switches to its alternate screen UI and the execution logs used by this tool are not emitted in the expected form.

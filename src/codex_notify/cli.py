@@ -7,10 +7,11 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, Optional, TextIO
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, TextIO, Tuple
 
 SLACK_API = "https://slack.com/api/chat.postMessage"
 DEFAULT_ENV_PATH = ".env"
+DEFAULT_SESSIONS_DIR = Path.home() / ".codex" / "sessions"
 
 
 def load_env_file(path: str = DEFAULT_ENV_PATH, override: bool = False) -> None:
@@ -68,12 +69,197 @@ def fmt_block(title: str, body: str) -> str:
     return f"*{title}*\n```{body}```"
 
 
+def build_root_text(title: str, cwd: str) -> str:
+    return fmt_block(title, f"Codex log monitoring started.\nCWD: {cwd}")
+
+
+def fmt_plain(title: str, body: str) -> str:
+    return f"*{title}*\n{body}"
+
+
 def getenv_any(keys: Iterable[str]) -> Optional[str]:
     for key in keys:
         value = os.environ.get(key)
         if value:
             return value
     return None
+
+
+def _as_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _pretty_json(value: Any) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=False)
+    except Exception:
+        return _as_text(value)
+
+
+def _format_tool_payload(payload: Dict[str, Any]) -> str:
+    command = payload.get("command") or payload.get("cmd") or payload.get("argv")
+    stdout = payload.get("stdout")
+    stderr = payload.get("stderr")
+    exit_code = payload.get("exit_code")
+
+    if command is None and isinstance(payload.get("info"), dict):
+        info = payload["info"]
+        command = info.get("command") or info.get("cmd") or info.get("argv")
+        stdout = stdout or info.get("stdout")
+        stderr = stderr or info.get("stderr")
+        if exit_code is None:
+            exit_code = info.get("exit_code")
+
+    if command is not None or stdout is not None or stderr is not None or exit_code is not None:
+        if isinstance(command, list):
+            command_text = " ".join(map(str, command))
+        else:
+            command_text = str(command) if command is not None else ""
+        parts: List[str] = []
+        if command_text:
+            parts.append(f"$ {command_text}")
+        if exit_code is not None:
+            parts.append(f"[exit_code] {exit_code}")
+        if stdout:
+            parts.append("\n[stdout]\n" + str(stdout))
+        if stderr:
+            parts.append("\n[stderr]\n" + str(stderr))
+        rendered = "\n".join(parts).strip()
+        return rendered or _pretty_json(payload)
+
+    for key in ("tool_name", "name", "tool", "function_name"):
+        if payload.get(key):
+            tool_name = payload.get(key)
+            args = payload.get("arguments") or payload.get("args") or payload.get("input")
+            result = payload.get("result") or payload.get("output")
+            parts = [f"[tool] {tool_name}"]
+            if args is not None:
+                parts.append("[args]\n" + _pretty_json(args))
+            if result is not None:
+                parts.append("[result]\n" + _pretty_json(result))
+            return "\n".join(parts)
+
+    return _pretty_json(payload)
+
+
+def _is_tool_event_type(event_type: Optional[str]) -> bool:
+    if not event_type:
+        return False
+    return str(event_type) in {
+        "command_execution",
+        "shell_command",
+        "tool_call",
+        "tool_result",
+        "tool",
+        "mcp_tool_call",
+        "mcp_tool_result",
+        "mcp_call",
+        "mcp_result",
+        "sandbox_command",
+    }
+
+
+def extract_events(obj: Any) -> List[Tuple[str, str, str]]:
+    events: List[Tuple[str, str, str]] = []
+
+    if isinstance(obj, list):
+        for item in obj:
+            events.extend(extract_events(item))
+        return events
+
+    if not isinstance(obj, dict):
+        return events
+
+    object_type = obj.get("type")
+    if object_type in ("input_text", "output_text"):
+        text = _as_text(obj.get("text") or obj.get("content"))
+        if text:
+            kind = "user" if object_type == "input_text" else "assistant"
+            events.append((kind, text, object_type))
+        return events
+
+    payload = obj.get("payload")
+    if isinstance(payload, dict):
+        payload_type = payload.get("type")
+
+        if _is_tool_event_type(payload_type):
+            events.append(("tool", _format_tool_payload(payload), "tool"))
+            return events
+
+        if payload_type in ("input_text", "output_text"):
+            text = _as_text(payload.get("text") or payload.get("content"))
+            if text:
+                kind = "user" if payload_type == "input_text" else "assistant"
+                events.append((kind, text, payload_type))
+            return events
+
+        if payload_type == "message":
+            role = payload.get("role")
+            content = payload.get("content")
+            if content is None:
+                content = payload.get("parts")
+
+            if isinstance(content, list):
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    part_type = part.get("type")
+                    if part_type in ("input_text", "output_text"):
+                        text = _as_text(part.get("text") or part.get("content"))
+                        if text:
+                            kind = "user" if part_type == "input_text" else "assistant"
+                            events.append((kind, text, part_type))
+                    elif _is_tool_event_type(part_type):
+                        events.append(("tool", _format_tool_payload(part), "tool"))
+            else:
+                text = _as_text(payload.get("text"))
+                if text and role in ("user", "assistant"):
+                    inferred = "input_text" if role == "user" else "output_text"
+                    events.append((role, text, inferred))
+            return events
+
+        if payload_type == "user_message":
+            text = _as_text(payload.get("message") or payload.get("text"))
+            if text:
+                events.append(("user", text, "input_text"))
+            return events
+
+        if payload_type == "agent_message":
+            text = _as_text(payload.get("message") or payload.get("text"))
+            if text:
+                events.append(("assistant", text, "output_text"))
+            return events
+
+        if payload_type == "task_complete":
+            text = _as_text(payload.get("last_agent_message"))
+            if text:
+                events.append(("assistant", text, "output_text"))
+            return events
+
+        nested_message = payload.get("message")
+        if isinstance(nested_message, (dict, list)):
+            events.extend(extract_events(nested_message))
+            return events
+
+        for key in ("tool", "tool_call", "tool_result", "command_execution", "command"):
+            nested = payload.get(key)
+            if isinstance(nested, dict):
+                nested_type = nested.get("type") or key
+                if _is_tool_event_type(nested_type) or key in ("command_execution", "command"):
+                    events.append(("tool", _format_tool_payload(nested), "tool"))
+
+    for key in ("message", "item", "response_item", "response_message", "data"):
+        nested = obj.get(key)
+        if isinstance(nested, (dict, list)):
+            events.extend(extract_events(nested))
+
+    return events
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -110,6 +296,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.05,
         help="Sleep between Slack posts",
     )
+    parser.add_argument(
+        "--sessions-dir",
+        default=str(DEFAULT_SESSIONS_DIR),
+        help="Codex sessions directory",
+    )
+    parser.add_argument(
+        "--session-file",
+        default=None,
+        help="Specific Codex session jsonl file to monitor",
+    )
+    parser.add_argument(
+        "--poll-sec",
+        type=float,
+        default=1.0,
+        help="Polling interval when following a session file",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Process the current contents once instead of following for new lines",
+    )
     return parser
 
 
@@ -130,6 +337,7 @@ def process_events(
     token: str,
     channel: str,
     root_text: str,
+    initial_prompt: Optional[str] = None,
     include_tools: bool = False,
     throttle_sec: float = 0.0,
     post_func: Callable[[str, str, str, Optional[str]], Dict[str, Any]] = slack_post,
@@ -146,6 +354,9 @@ def process_events(
             post_func(token, channel, fmt_block(title, part), thread_ts)
             sleep_func(throttle_sec)
 
+    if initial_prompt:
+        post_thread("user", initial_prompt)
+
     for raw in stream:
         line = raw.strip()
         if not line:
@@ -160,11 +371,10 @@ def process_events(
 
         if event_type == "turn.started":
             turn_idx += 1
-            post_thread(f"turn {turn_idx} started", json.dumps(event, ensure_ascii=False))
             continue
 
         if event_type == "turn.failed":
-            post_thread(f"turn {turn_idx} FAILED", json.dumps(event, ensure_ascii=False))
+            post_thread("system", f"turn {turn_idx} failed")
             continue
 
         if event_type != "item.completed":
@@ -176,7 +386,7 @@ def process_events(
         if item_type in ("agent_message", "assistant_message", "assistant"):
             text = item.get("text") or item.get("content") or ""
             post_thread(
-                f"assistant (turn {turn_idx})",
+                "assistant",
                 text if text else json.dumps(item, ensure_ascii=False),
             )
             continue
@@ -184,7 +394,7 @@ def process_events(
         if item_type in ("user_message", "user"):
             text = item.get("text") or item.get("content") or ""
             post_thread(
-                f"user (turn {turn_idx})",
+                "user",
                 text if text else json.dumps(item, ensure_ascii=False),
             )
             continue
@@ -223,6 +433,100 @@ def process_events(
     return 0
 
 
+def iter_follow_lines(
+    path: Path,
+    poll_sec: float = 1.0,
+    once: bool = False,
+    start_at_end: bool = True,
+    sleep_func: Callable[[float], None] = time.sleep,
+) -> Iterator[str]:
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        if start_at_end:
+            handle.seek(0, os.SEEK_END)
+        while True:
+            line = handle.readline()
+            if line:
+                yield line
+                continue
+            if once:
+                break
+            sleep_func(poll_sec)
+
+
+def find_latest_session_file(sessions_dir: Path) -> Optional[Path]:
+    if not sessions_dir.exists():
+        return None
+    files = [path for path in sessions_dir.rglob("*.jsonl") if path.is_file()]
+    if not files:
+        return None
+    return max(files, key=lambda path: path.stat().st_mtime)
+
+
+def process_codex_log_stream(
+    stream: Iterable[str],
+    token: str,
+    channel: str,
+    root_text: str,
+    include_tools: bool = False,
+    throttle_sec: float = 0.0,
+    post_func: Callable[[str, str, str, Optional[str]], Dict[str, Any]] = slack_post,
+    sleep_func: Callable[[float], None] = time.sleep,
+) -> int:
+    post_func(token, channel, root_text, None)
+    sleep_func(throttle_sec)
+    last_sent_fingerprint: Optional[str] = None
+    current_thread_ts: Optional[str] = None
+
+    def post_thread(title: str, body: str, thread_ts: Optional[str]) -> None:
+        for part in chunk_text(body):
+            formatter = fmt_plain if title in ("user", "assistant", "system") else fmt_block
+            post_func(token, channel, formatter(title, part), thread_ts)
+            sleep_func(throttle_sec)
+
+    for raw in stream:
+        line = raw.strip()
+        if not line:
+            continue
+
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        extracted_events = extract_events(event)
+        if not extracted_events:
+            continue
+
+        for kind, text, part_type in extracted_events:
+            if not text:
+                continue
+            if part_type == "tool" and not include_tools:
+                continue
+
+            fingerprint = f"{part_type}:{kind}:{text[:240]}"
+            if fingerprint == last_sent_fingerprint:
+                continue
+            last_sent_fingerprint = fingerprint
+
+            title = "assistant" if kind == "assistant" else kind
+            if kind == "user":
+                parts = list(chunk_text(text))
+                if not parts:
+                    continue
+                current_thread_ts = str(
+                    post_func(token, channel, fmt_plain("user", parts[0]), None)["ts"]
+                )
+                sleep_func(throttle_sec)
+                for part in parts[1:]:
+                    post_func(token, channel, fmt_plain("user(cont.)", part), current_thread_ts)
+                    sleep_func(throttle_sec)
+                continue
+
+            post_thread(title, text, current_thread_ts)
+
+    return 0
+
+
 def main(argv: Optional[list[str]] = None, stdin: Optional[TextIO] = None) -> int:
     args = parse_args(argv)
     if not args.token or not args.channel:
@@ -232,16 +536,22 @@ def main(argv: Optional[list[str]] = None, stdin: Optional[TextIO] = None) -> in
         )
         return 2
 
-    prompt = args.prompt or getenv_any(["CODEX_PROMPT", "PROMPT"])
     cwd = os.getcwd()
     title = args.title or f"Codex run: {os.path.basename(cwd)}"
-    root_text = fmt_block(
-        title,
-        f"CWD: {cwd}\n\nPROMPT:\n{prompt or '(prompt not provided)'}",
-    )
+    root_text = build_root_text(title, cwd)
+    session_file = Path(args.session_file) if args.session_file else find_latest_session_file(Path(args.sessions_dir))
+    if not session_file or not session_file.exists():
+        print("ERROR: no Codex session log file found", file=sys.stderr)
+        return 2
 
-    return process_events(
-        stdin or sys.stdin,
+    return process_codex_log_stream(
+        iter_follow_lines(
+            session_file,
+            poll_sec=args.poll_sec,
+            once=args.once,
+            start_at_end=True,
+            sleep_func=time.sleep,
+        ),
         token=args.token,
         channel=args.channel,
         root_text=root_text,
