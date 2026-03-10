@@ -544,20 +544,24 @@ def main(argv: Optional[list[str]] = None, stdin: Optional[TextIO] = None) -> in
         print("ERROR: no Codex session log file found", file=sys.stderr)
         return 2
 
-    return process_codex_log_stream(
-        iter_follow_lines(
-            session_file,
-            poll_sec=args.poll_sec,
-            once=args.once,
-            start_at_end=True,
-            sleep_func=time.sleep,
-        ),
-        token=args.token,
-        channel=args.channel,
-        root_text=root_text,
-        include_tools=args.include_tools,
-        throttle_sec=args.throttle_sec,
-    )
+    try:
+        return process_codex_log_stream(
+            iter_follow_lines(
+                session_file,
+                poll_sec=args.poll_sec,
+                once=args.once,
+                start_at_end=True,
+                sleep_func=time.sleep,
+            ),
+            token=args.token,
+            channel=args.channel,
+            root_text=root_text,
+            include_tools=args.include_tools,
+            throttle_sec=args.throttle_sec,
+        )
+    except KeyboardInterrupt:
+        print("Stopped.", file=sys.stderr)
+        return 0
 
 
 if __name__ == "__main__":

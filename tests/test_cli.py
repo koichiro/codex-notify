@@ -3,6 +3,7 @@ import os
 
 import pytest
 
+import codex_notify.cli as cli_module
 from codex_notify.cli import (
     _format_tool_payload,
     _is_tool_event_type,
@@ -110,6 +111,26 @@ def test_main_returns_error_without_session_log(monkeypatch, capsys, tmp_path):
 
     assert exit_code == 2
     assert "no Codex session log file found" in capsys.readouterr().err
+
+
+def test_main_exits_cleanly_on_keyboard_interrupt(monkeypatch, capsys, tmp_path):
+    session_file = tmp_path / "rollout.jsonl"
+    session_file.write_text("", encoding="utf-8")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-token")
+    monkeypatch.setenv("SLACK_CHANNEL", "C123")
+    monkeypatch.setattr(cli_module, "process_codex_log_stream", lambda *args, **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()))
+
+    exit_code = main(
+        [
+            "--env-file",
+            "missing.env",
+            "--session-file",
+            str(session_file),
+        ]
+    )
+
+    assert exit_code == 0
+    assert "Stopped." in capsys.readouterr().err
 
 
 def test_process_events_posts_root_assistant_and_finish():
