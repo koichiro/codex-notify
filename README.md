@@ -1,6 +1,6 @@
 # codex-notify
 
-`codex-notify` is a small CLI tool that reads Codex JSONL event streams from `stdin` and posts them into a Slack thread.
+`codex-notify` is a small CLI tool that reads Codex execution logs and posts them into a Slack thread.
 
 It is intended for lightweight run visibility: one root Slack message per run, then thread replies for turns, assistant messages, failures, and optionally tool events.
 
@@ -14,7 +14,7 @@ It is intended for lightweight run visibility: one root Slack message per run, t
 
 1. The script loads configuration from `.env`, environment variables, and CLI flags.
 2. It posts a root Slack message containing the working directory and prompt.
-3. It reads JSONL events from `stdin`.
+3. It reads Codex execution logs.
 4. It converts selected events into Slack thread replies.
 5. It optionally includes noisy tool events such as command execution and file changes.
 
@@ -70,10 +70,28 @@ CLI flags override environment variables.
 
 ## Usage
 
-Basic usage:
+### Running With Codex
+
+`codex-notify` reads Codex execution logs directly, so piping Codex output into this tool is not required.
+
+Codex should still be started with `--no-alt-screen`, because that is the supported way to keep its execution output compatible with this workflow.
+
+Start a new Codex run:
 
 ```bash
-python codex-notify.py < events.jsonl
+codex --no-alt-screen
+```
+
+Resume the previous Codex session:
+
+```bash
+codex --no-alt-screen resume
+```
+
+Run `codex-notify` separately:
+
+```bash
+python codex-notify.py
 ```
 
 With explicit flags:
@@ -83,33 +101,22 @@ python codex-notify.py \
   --token "$SLACK_BOT_TOKEN" \
   --channel "$SLACK_CHANNEL" \
   --title "Codex run: my-project" \
-  --prompt "Investigate failing tests" \
-  < events.jsonl
+  --prompt "Investigate failing tests"
 ```
 
 Including tool events:
 
 ```bash
-python codex-notify.py --include-tools < events.jsonl
+python codex-notify.py --include-tools
 ```
 
 Using a custom env file:
 
 ```bash
-python codex-notify.py --env-file .env.local < events.jsonl
+python codex-notify.py --env-file .env.local
 ```
 
-## Input Format
-
-The tool expects newline-delimited JSON objects on `stdin`.
-
-Typical events:
-
-- `turn.started`
-- `turn.failed`
-- `item.completed`
-
-For `item.completed`, the script inspects `item.type` or `item.item_type`.
+Without `--no-alt-screen`, Codex switches to its alternate screen UI and the execution logs used by this tool are not emitted in the expected form.
 
 ## Development
 
