@@ -1,5 +1,10 @@
 # codex-notify
 
+[![CI](https://github.com/koichiro/codex-notify/actions/workflows/ci.yml/badge.svg)](https://github.com/koichiro/codex-notify/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen)](#development)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#development)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
+
 `codex-notify` is a small CLI tool that tails Codex session log files and posts compact Slack notifications.
 
 It is intended for lightweight run visibility: one small monitoring-start message, then one Slack thread per new user prompt with the corresponding Codex responses attached.
