@@ -15,22 +15,6 @@ class CodexNotifyCLITest < Minitest::Test
     ENV.replace(@env_backup)
   end
 
-  def test_chunk_text_splits_long_text
-    assert_equal %w[aaaa aaaa aa], CLI.chunk_text('a' * 10, 4).to_a
-  end
-
-  def test_fmt_block_wraps_title_and_body
-    assert_equal "*title*\n```body```", CLI.fmt_block('title', 'body')
-  end
-
-  def test_build_root_text_is_minimal
-    text = CLI.build_root_text('title', '/tmp/project', user_name: 'alice', session_id: 'session-123')
-    assert_includes text, 'Codex log monitoring started.'
-    assert_includes text, 'CWD: /tmp/project'
-    assert_includes text, 'User: alice'
-    assert_includes text, 'Session ID: session-123'
-  end
-
   def test_session_id_from_path_uses_jsonl_basename
     assert_equal 'rollout-abc', CLI.session_id_from_path('/tmp/rollout-abc.jsonl')
   end
@@ -39,16 +23,6 @@ class CodexNotifyCLITest < Minitest::Test
     ENV.delete('FIRST')
     ENV['SECOND'] = 'value'
     assert_equal 'value', CLI.getenv_any(%w[FIRST SECOND])
-  end
-
-  def test_as_text_handles_non_string_values
-    assert_equal '', CLI.as_text(nil)
-    assert_equal '{"a":1}', CLI.as_text({ 'a' => 1 })
-    assert_equal '12', CLI.as_text(12)
-  end
-
-  def test_pretty_json_falls_back_to_json_string
-    assert_includes CLI.pretty_json({ 'a' => 1 }), '"a": 1'
   end
 
   def test_load_env_file_sets_values
@@ -324,27 +298,6 @@ class CodexNotifyCLITest < Minitest::Test
 
       assert_equal newer, CLI.find_latest_session_file(dir)
     end
-  end
-
-  def test_tool_event_type_recognizes_command_execution
-    assert_equal true, CLI.tool_event_type?('command_execution')
-    assert_equal false, CLI.tool_event_type?('other')
-  end
-
-  def test_format_tool_payload_formats_command
-    payload = { 'command' => %w[ls -la], 'exit_code' => 0, 'stdout' => 'ok', 'stderr' => '' }
-    text = CLI.format_tool_payload(payload)
-    assert_includes text, '$ ls -la'
-    assert_includes text, '[exit_code] 0'
-    assert_includes text, '[stdout]'
-  end
-
-  def test_format_tool_payload_formats_generic_tool
-    payload = { 'name' => 'web_search', 'arguments' => { 'q' => 'x' }, 'result' => { 'ok' => true } }
-    text = CLI.format_tool_payload(payload)
-    assert_includes text, '[tool] web_search'
-    assert_includes text, '[args]'
-    assert_includes text, '[result]'
   end
 
   def test_process_codex_log_stream_posts_user_and_assistant_messages

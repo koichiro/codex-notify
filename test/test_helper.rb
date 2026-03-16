@@ -10,6 +10,7 @@ require 'pathname'
 ROOT = Pathname(__dir__).join('..').expand_path
 $LOAD_PATH.unshift(ROOT.join('lib').to_s)
 
+require 'codex_notify'
 require 'codex_notify/cli'
 
 module CoverageReport
