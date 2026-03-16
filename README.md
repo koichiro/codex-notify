@@ -27,7 +27,7 @@ It is intended for lightweight run visibility: one small monitoring-start messag
 ## Supported Behavior
 
 - One monitoring-start message with run title and working directory
-- Monitoring-start message also includes the Slack user label and local system user
+- Monitoring-start message also includes the configured user label and session ID
 - One new Slack thread for each new user prompt
 - Thread replies for:
   - assistant responses

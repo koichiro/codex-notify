@@ -24,11 +24,15 @@ class CodexNotifyCLITest < Minitest::Test
   end
 
   def test_build_root_text_is_minimal
-    text = CLI.build_root_text('title', '/tmp/project', user_name: 'alice', system_user: 'koichiro')
+    text = CLI.build_root_text('title', '/tmp/project', user_name: 'alice', session_id: 'session-123')
     assert_includes text, 'Codex log monitoring started.'
     assert_includes text, 'CWD: /tmp/project'
-    assert_includes text, 'Slack User Label: alice'
-    assert_includes text, 'System User: koichiro'
+    assert_includes text, 'User: alice'
+    assert_includes text, 'Session ID: session-123'
+  end
+
+  def test_session_id_from_path_uses_jsonl_basename
+    assert_equal 'rollout-abc', CLI.session_id_from_path('/tmp/rollout-abc.jsonl')
   end
 
   def test_getenv_any_returns_first_match
@@ -95,6 +99,23 @@ class CodexNotifyCLITest < Minitest::Test
     args = CLI.parse_args(['--user-name', 'cli-user'])
 
     assert_equal 'cli-user', args.user_name
+  end
+
+  def test_parse_args_uses_system_user_name_when_no_override_is_present
+    ENV.delete('CODEX_NOTIFY_USER_NAME')
+
+    original = CLI.method(:system_user_name)
+    with_silenced_warnings do
+      CLI.singleton_class.send(:define_method, :system_user_name) { 'local-user' }
+    end
+    begin
+      args = CLI.parse_args([])
+      assert_equal 'local-user', args.user_name
+    ensure
+      with_silenced_warnings do
+        CLI.singleton_class.send(:define_method, :system_user_name, original)
+      end
+    end
   end
 
   def test_main_returns_error_without_credentials

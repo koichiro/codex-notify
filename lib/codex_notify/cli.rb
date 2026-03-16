@@ -84,19 +84,24 @@ module CodexNotify
       "*#{title}*\n```#{body}```"
     end
 
-    def build_root_text(title, cwd, user_name: 'user', system_user: nil)
-      system_user ||= Etc.getlogin || ENV['USER'] || ENV['USERNAME'] || 'unknown'
+    def build_root_text(title, cwd, user_name: 'user', session_id: nil)
       body = [
         'Codex log monitoring started.',
         "CWD: #{cwd}",
-        "Slack User Label: #{user_name}",
-        "System User: #{system_user}"
+        "User: #{user_name}",
+        "Session ID: #{session_id || 'unknown'}"
       ].join("\n")
       fmt_block(title, body)
     end
 
     def fmt_plain(title, body)
       "*#{title}*\n#{body}"
+    end
+
+    def system_user_name
+      Etc.getlogin || ENV['USER'] || ENV['USERNAME'] || 'user'
+    rescue StandardError
+      ENV['USER'] || ENV['USERNAME'] || 'user'
     end
 
     def getenv_any(keys)
@@ -361,7 +366,7 @@ module CodexNotify
       load_env_file(options.env_file)
       options.token ||= ENV['SLACK_BOT_TOKEN']
       options.channel ||= ENV['SLACK_CHANNEL']
-      options.user_name ||= ENV['CODEX_NOTIFY_USER_NAME'] || 'user'
+      options.user_name ||= ENV['CODEX_NOTIFY_USER_NAME'] || system_user_name
       options
     end
 
@@ -475,6 +480,11 @@ module CodexNotify
       files.max_by { |path| path.stat.mtime.to_f }
     end
 
+    def session_id_from_path(path)
+      pathname = Pathname(path)
+      pathname.basename('.jsonl').to_s
+    end
+
     def process_codex_log_stream(stream, token:, channel:, root_text:, user_name: 'user', include_tools: false, throttle_sec: 0.0,
                                  post_func: method(:slack_post), sleep_func: Kernel.method(:sleep))
       post_func.call(token, channel, root_text, nil)
@@ -546,12 +556,17 @@ module CodexNotify
 
       cwd = Dir.pwd
       title = args.title || "Codex run: #{File.basename(cwd)}"
-      root_text = build_root_text(title, cwd, user_name: args.user_name)
       session_file = args.session_file ? Pathname(args.session_file) : find_latest_session_file(Pathname(args.sessions_dir))
       unless session_file&.exist?
         stderr.puts('ERROR: no Codex session log file found')
         return 2
       end
+      root_text = build_root_text(
+        title,
+        cwd,
+        user_name: args.user_name,
+        session_id: session_id_from_path(session_file)
+      )
 
       process_codex_log_stream(
         iter_follow_lines(
