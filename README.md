@@ -1,11 +1,11 @@
 # codex-notify
 
 [![CI](https://github.com/koichiro/codex-notify/actions/workflows/ci.yml/badge.svg)](https://github.com/koichiro/codex-notify/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen)](#development)
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#development)
+[![Coverage](https://img.shields.io/badge/coverage-80%25-brightgreen)](#development)
+[![Ruby](https://img.shields.io/badge/ruby-3.1%2B-red)](#development)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
 
-`codex-notify` is a small CLI tool that tails Codex session log files and posts compact Slack notifications.
+`codex-notify` is a small Ruby CLI tool that tails Codex session log files and posts compact Slack notifications.
 
 It is intended for lightweight run visibility: one small monitoring-start message, then one Slack thread per new user prompt with the corresponding Codex responses attached.
 
@@ -37,7 +37,7 @@ It is intended for lightweight run visibility: one small monitoring-start messag
   - `web_search`
   - other completed items
 - Long payloads are split into safe chunks before posting
-- `.env` loading without requiring `python-dotenv`
+- `.env` loading without requiring additional gems
 
 ## Project Layout
 
@@ -47,13 +47,12 @@ It is intended for lightweight run visibility: one small monitoring-start messag
 ├── .gitignore
 ├── README.md
 ├── codex-notify.py
-├── pyproject.toml
-├── src/
+├── Rakefile
+├── lib/
 │   └── codex_notify/
-│       ├── __init__.py
-│       └── cli.py
-└── tests/
-    └── test_cli.py
+│       └── cli.rb
+└── test/
+    └── test_cli.rb
 ```
 
 ## Configuration
@@ -97,19 +96,19 @@ codex --no-alt-screen resume
 Run `codex-notify` separately:
 
 ```bash
-python codex-notify.py
+ruby codex-notify.rb
 ```
 
 Monitor a specific session file:
 
 ```bash
-python codex-notify.py --session-file ~/.codex/sessions/2026/03/10/rollout-....jsonl
+ruby codex-notify.rb --session-file ~/.codex/sessions/2026/03/10/rollout-....jsonl
 ```
 
 Process the current contents once and exit:
 
 ```bash
-python codex-notify.py --once
+ruby codex-notify.rb --once
 ```
 
 In normal follow mode, `codex-notify` starts from the end of the session log and only posts prompts and responses appended after the monitor starts.
@@ -117,7 +116,7 @@ In normal follow mode, `codex-notify` starts from the end of the session log and
 With explicit flags:
 
 ```bash
-python codex-notify.py \
+ruby codex-notify.rb \
   --token "$SLACK_BOT_TOKEN" \
   --channel "$SLACK_CHANNEL" \
   --title "Codex run: my-project" \
@@ -127,43 +126,29 @@ python codex-notify.py \
 Including tool events:
 
 ```bash
-python codex-notify.py --include-tools
+ruby codex-notify.rb --include-tools
 ```
 
 Using a custom env file:
 
 ```bash
-python codex-notify.py --env-file .env.local
+ruby codex-notify.rb --env-file .env.local
 ```
 
 Using a custom sessions directory:
 
 ```bash
-python codex-notify.py --sessions-dir ~/.codex/sessions
+ruby codex-notify.rb --sessions-dir ~/.codex/sessions
 ```
 
 Without `--no-alt-screen`, Codex switches to its alternate screen UI and the execution logs used by this tool are not emitted in the expected form.
 
 ## Development
 
-Create a virtual environment and install test dependencies:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .[test]
-```
-
 Run tests:
 
 ```bash
-pytest
+rake
 ```
 
-Run tests with coverage:
-
-```bash
-pytest --cov=src/codex_notify --cov-report=term-missing
-```
-
-The test suite is designed to stay above 70% coverage.
+The test suite uses `minitest`, runs through `rake`, and enforces 80% line coverage for files under `lib/`.
