@@ -279,6 +279,38 @@ module CodexNotify
       events
     end
 
+    def extract_session_id(obj)
+      return nil if obj.nil?
+
+      if obj.is_a?(Hash)
+        %w[
+          session_id
+          sessionId
+          conversation_id
+          conversationId
+          chat_id
+          chatId
+          thread_id
+          threadId
+        ].each do |key|
+          value = obj[key]
+          return value.to_s unless value.nil? || value.to_s.empty?
+        end
+
+        obj.each_value do |value|
+          session_id = extract_session_id(value)
+          return session_id if session_id
+        end
+      elsif obj.is_a?(Array)
+        obj.each do |value|
+          session_id = extract_session_id(value)
+          return session_id if session_id
+        end
+      end
+
+      nil
+    end
+
     def build_parser
       options = Args.new(
         env_file: DEFAULT_ENV_PATH,
@@ -436,7 +468,7 @@ module CodexNotify
       post_func.call(token, channel, root_text, nil)
       sleep_func.call(throttle_sec)
       last_sent_fingerprint = nil
-      current_thread_ts = nil
+      thread_ts_by_session = {}
 
       post_thread = lambda do |title, body, thread_ts|
         chunk_text(body).each do |part|
@@ -451,6 +483,7 @@ module CodexNotify
         next if line.empty?
 
         event = JSON.parse(line)
+        session_id = extract_session_id(event) || '__default__'
         extracted_events = extract_events(event)
         next if extracted_events.empty?
 
@@ -458,26 +491,32 @@ module CodexNotify
           next if text.empty?
           next if part_type == 'tool' && !include_tools
 
-          fingerprint = "#{part_type}:#{kind}:#{text[0, 240]}"
+          fingerprint = "#{session_id}:#{part_type}:#{kind}:#{text[0, 240]}"
           next if fingerprint == last_sent_fingerprint
 
           last_sent_fingerprint = fingerprint
           title = kind == 'assistant' ? 'assistant' : kind
+          thread_ts = thread_ts_by_session[session_id]
 
           if kind == 'user'
             parts = chunk_text(text).to_a
             next if parts.empty?
 
-            current_thread_ts = post_func.call(token, channel, fmt_plain('user', parts.first), nil).fetch('ts').to_s
+            if thread_ts
+              post_func.call(token, channel, fmt_plain('user', parts.first), thread_ts)
+            else
+              thread_ts = post_func.call(token, channel, fmt_plain('user', parts.first), nil).fetch('ts').to_s
+              thread_ts_by_session[session_id] = thread_ts
+            end
             sleep_func.call(throttle_sec)
             parts.drop(1).each do |part|
-              post_func.call(token, channel, fmt_plain('user(cont.)', part), current_thread_ts)
+              post_func.call(token, channel, fmt_plain('user(cont.)', part), thread_ts)
               sleep_func.call(throttle_sec)
             end
             next
           end
 
-          post_thread.call(title, text, current_thread_ts)
+          post_thread.call(title, text, thread_ts)
         end
       rescue JSON::ParserError
         next

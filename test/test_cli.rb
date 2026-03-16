@@ -424,6 +424,19 @@ class CodexNotifyCLITest < Minitest::Test
     assert(CLI.extract_events(obj).any? { |event| event[0] == 'tool' })
   end
 
+  def test_extract_session_id_reads_nested_session_id
+    obj = {
+      'type' => 'event_msg',
+      'payload' => {
+        'type' => 'user_message',
+        'message' => 'hello',
+        'session_id' => 'sess-1'
+      }
+    }
+
+    assert_equal 'sess-1', CLI.extract_session_id(obj)
+  end
+
   def test_process_codex_log_stream_deduplicates_same_message
     posts = []
     fake_post = lambda do |_token, _channel, text, thread_ts = nil|
@@ -443,7 +456,7 @@ class CodexNotifyCLITest < Minitest::Test
     assert_equal 1, assistant_posts.length
   end
 
-  def test_process_codex_log_stream_starts_new_thread_for_each_user_message
+  def test_process_codex_log_stream_reuses_thread_for_same_session_id
     posts = []
     counter = 0
     fake_post = lambda do |_token, _channel, text, thread_ts = nil|
@@ -454,10 +467,41 @@ class CodexNotifyCLITest < Minitest::Test
     end
 
     events = StringIO.new([
-                           '{"type":"event_msg","payload":{"type":"user_message","message":"first"}}',
-                           '{"type":"event_msg","payload":{"type":"agent_message","message":"reply1"}}',
-                           '{"type":"event_msg","payload":{"type":"user_message","message":"second"}}',
-                           '{"type":"event_msg","payload":{"type":"agent_message","message":"reply2"}}'
+                           '{"type":"event_msg","session_id":"session-1","payload":{"type":"user_message","message":"first"}}',
+                           '{"type":"event_msg","session_id":"session-1","payload":{"type":"agent_message","message":"reply1"}}',
+                           '{"type":"event_msg","session_id":"session-1","payload":{"type":"user_message","message":"second"}}',
+                           '{"type":"event_msg","session_id":"session-1","payload":{"type":"agent_message","message":"reply2"}}'
+                         ].join("\n"))
+
+    CLI.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_text: 'root',
+                                 post_func: fake_post, sleep_func: ->(_) {})
+
+    first_user = posts[1]
+    first_reply = posts[2]
+    second_user = posts[3]
+    second_reply = posts[4]
+
+    assert_nil first_user[:thread_ts]
+    assert_equal first_user[:ts], first_reply[:thread_ts]
+    assert_equal first_user[:ts], second_user[:thread_ts]
+    assert_equal first_user[:ts], second_reply[:thread_ts]
+  end
+
+  def test_process_codex_log_stream_starts_new_thread_for_different_session_id
+    posts = []
+    counter = 0
+    fake_post = lambda do |_token, _channel, text, thread_ts = nil|
+      counter += 1
+      ts = "300.0#{counter}"
+      posts << { text:, thread_ts:, ts: }
+      { 'ok' => true, 'ts' => ts }
+    end
+
+    events = StringIO.new([
+                           '{"type":"event_msg","session_id":"session-1","payload":{"type":"user_message","message":"first"}}',
+                           '{"type":"event_msg","session_id":"session-1","payload":{"type":"agent_message","message":"reply1"}}',
+                           '{"type":"event_msg","session_id":"session-2","payload":{"type":"user_message","message":"second"}}',
+                           '{"type":"event_msg","session_id":"session-2","payload":{"type":"agent_message","message":"reply2"}}'
                          ].join("\n"))
 
     CLI.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_text: 'root',
