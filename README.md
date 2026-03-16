@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/koichiro/codex-notify/actions/workflows/ci.yml/badge.svg)](https://github.com/koichiro/codex-notify/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-80%25-brightgreen)](#development)
-[![Ruby](https://img.shields.io/badge/ruby-3.1%2B-red)](#development)
+[![Ruby](https://img.shields.io/badge/ruby-3.2%2B-red)](#development)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
 
 `codex-notify` is a small Ruby CLI tool that tails Codex session log files and posts compact Slack notifications.
