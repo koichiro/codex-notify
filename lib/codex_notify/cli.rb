@@ -10,6 +10,7 @@ require 'time'
 require 'uri'
 require_relative 'log_event_parser'
 require_relative 'message_formatter'
+require_relative 'session_log'
 
 module CodexNotify
   module CLI
@@ -73,6 +74,18 @@ module CodexNotify
 
     def extract_session_id(*args, **kwargs)
       CodexNotify::LogEventParser.extract_session_id(*args, **kwargs)
+    end
+
+    def iter_follow_lines(*args, **kwargs, &block)
+      CodexNotify::SessionLog.iter_follow_lines(*args, **kwargs, &block)
+    end
+
+    def find_latest_session_file(*args, **kwargs)
+      CodexNotify::SessionLog.find_latest_session_file(*args, **kwargs)
+    end
+
+    def session_id_from_path(*args, **kwargs)
+      CodexNotify::SessionLog.session_id_from_path(*args, **kwargs)
     end
 
     def load_env_file(path = DEFAULT_ENV_PATH, override: false)
@@ -250,39 +263,6 @@ module CodexNotify
 
       post_thread.call('Codex run finished', 'EOF')
       0
-    end
-
-    def iter_follow_lines(path, poll_sec: 1.0, once: false, start_at_end: true, sleep_func: Kernel.method(:sleep))
-      return enum_for(__method__, path, poll_sec:, once:, start_at_end:, sleep_func:) unless block_given?
-
-      Pathname(path).open('r:utf-8') do |handle|
-        handle.seek(0, IO::SEEK_END) if start_at_end
-        loop do
-          line = handle.gets
-          if line
-            yield line
-            next
-          end
-          break if once
-
-          sleep_func.call(poll_sec)
-        end
-      end
-    end
-
-    def find_latest_session_file(sessions_dir)
-      root = Pathname(sessions_dir)
-      return nil unless root.exist?
-
-      files = root.glob('**/*.jsonl').select(&:file?)
-      return nil if files.empty?
-
-      files.max_by { |path| path.stat.mtime.to_f }
-    end
-
-    def session_id_from_path(path)
-      pathname = Pathname(path)
-      pathname.basename('.jsonl').to_s
     end
 
     def process_codex_log_stream(stream, token:, channel:, root_text:, user_name: 'user', include_tools: false, throttle_sec: 0.0,
