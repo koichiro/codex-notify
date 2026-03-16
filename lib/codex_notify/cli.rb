@@ -55,7 +55,8 @@ module CodexNotify
         title,
         cwd,
         user_name: args.user_name,
-        session_id: CodexNotify::SessionLog.session_id_from_path(session_file)
+        session_id: CodexNotify::SessionLog.session_id_from_log(session_file) ||
+          CodexNotify::SessionLog.session_id_from_path(session_file)
       )
 
       CodexNotify::StreamProcessor.process_codex_log_stream(

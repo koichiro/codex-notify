@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'json'
 require 'pathname'
 
 module CodexNotify
@@ -32,6 +33,26 @@ module CodexNotify
       return nil if files.empty?
 
       files.max_by { |path| path.stat.mtime.to_f }
+    end
+
+    def session_id_from_log(path)
+      pathname = Pathname(path)
+      return nil unless pathname.exist?
+
+      pathname.open('r:utf-8') do |handle|
+        handle.each_line do |raw|
+          line = raw.strip
+          next if line.empty?
+
+          event = JSON.parse(line)
+          session_id = CodexNotify::LogEventParser.extract_session_id(event)
+          return session_id if session_id
+        rescue JSON::ParserError
+          next
+        end
+      end
+
+      nil
     end
 
     def session_id_from_path(path)
