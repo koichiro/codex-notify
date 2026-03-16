@@ -47,7 +47,7 @@ It is intended for lightweight run visibility: one small monitoring-start messag
 ├── .env.sample
 ├── .gitignore
 ├── README.md
-├── codex-notify.py
+├── codex-notify.rb
 ├── Rakefile
 ├── lib/
 │   └── codex_notify/
@@ -71,7 +71,7 @@ Variables:
 
 - `SLACK_BOT_TOKEN`: Slack bot token used for `chat.postMessage`
 - `SLACK_CHANNEL`: Slack channel ID to receive the run thread
-- `CODEX_NOTIFY_USER_NAME`: Label used for user messages in Slack, default `user`
+- `CODEX_NOTIFY_USER_NAME`: Label used for user messages in Slack, default is the local system user
 - `CODEX_PROMPT`: Optional initial prompt to post as a user message when monitoring begins
 
 CLI flags override environment variables.
