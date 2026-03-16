@@ -191,6 +191,14 @@ module CodexNotify
       return nil if obj.nil?
 
       if obj.is_a?(Hash)
+        if obj['type'] == 'session_meta'
+          payload = obj['payload']
+          if payload.is_a?(Hash)
+            value = payload['id']
+            return value.to_s unless value.nil? || value.to_s.empty?
+          end
+        end
+
         %w[
           session_id
           sessionId

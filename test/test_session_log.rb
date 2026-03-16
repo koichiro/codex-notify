@@ -45,6 +45,24 @@ class CodexNotifySessionLogTest < Minitest::Test
     end
   end
 
+  def test_session_id_from_log_reads_session_meta_payload_id
+    with_tmpdir do |dir|
+      log_file = dir.join('session.jsonl')
+      log_file.write("{\"type\":\"session_meta\",\"payload\":{\"id\":\"019cf6db-b66a-7ac1-9a32-f9dc59c137b6\"}}\n")
+
+      assert_equal '019cf6db-b66a-7ac1-9a32-f9dc59c137b6', SessionLog.session_id_from_log(log_file)
+    end
+  end
+
+  def test_session_id_from_log_returns_nil_when_no_session_id_exists
+    with_tmpdir do |dir|
+      log_file = dir.join('session.jsonl')
+      log_file.write("{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"hello\"}}\n")
+
+      assert_nil SessionLog.session_id_from_log(log_file)
+    end
+  end
+
   private
 
   def with_tmpdir

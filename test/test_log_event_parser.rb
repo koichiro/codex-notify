@@ -21,6 +21,16 @@ class CodexNotifyLogEventParserTest < Minitest::Test
     assert_equal 'session-123', Parser.extract_session_id(payload)
   end
 
+  def test_extract_session_id_prefers_session_meta_payload_id
+    payload = {
+      'type' => 'session_meta',
+      'payload' => { 'id' => '019cf6db-b66a-7ac1-9a32-f9dc59c137b6' },
+      'session_id' => 'other-session'
+    }
+
+    assert_equal '019cf6db-b66a-7ac1-9a32-f9dc59c137b6', Parser.extract_session_id(payload)
+  end
+
   def test_tool_event_type_recognizes_command_execution
     assert_equal true, Parser.tool_event_type?('command_execution')
     assert_equal false, Parser.tool_event_type?('other')

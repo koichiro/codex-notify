@@ -42,7 +42,7 @@ class CodexNotifyCLITest < Minitest::Test
   def test_main_exits_cleanly_on_interrupt
     with_tmpdir do |dir|
       session_file = dir.join('rollout.jsonl')
-      session_file.write('')
+      session_file.write("{\"type\":\"session_meta\",\"payload\":{\"id\":\"session-123\"}}\n")
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
       ENV['SLACK_CHANNEL'] = 'C123'
       err = StringIO.new
@@ -61,6 +61,33 @@ class CodexNotifyCLITest < Minitest::Test
       end
 
       assert_includes err.string, 'Stopped.'
+    end
+  end
+
+  def test_main_uses_session_meta_payload_id_in_root_post
+    with_tmpdir do |dir|
+      session_file = dir.join('rollout.jsonl')
+      session_file.write("{\"type\":\"session_meta\",\"payload\":{\"id\":\"session-123\"}}\n")
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      posts = []
+      original = CLI.method(:slack_post)
+      with_silenced_warnings do
+        CLI.singleton_class.send(:define_method, :slack_post) do |_token, _channel, text, _thread_ts = nil|
+          posts << text
+          raise Interrupt
+        end
+      end
+      begin
+        CLI.main(['--env-file', 'missing.env', '--session-file', session_file.to_s], stderr: StringIO.new)
+      ensure
+        with_silenced_warnings do
+          CLI.singleton_class.send(:define_method, :slack_post, original)
+        end
+      end
+
+      assert(posts.any? { |text| text.include?('Session ID: session-123') })
     end
   end
 
