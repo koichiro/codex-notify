@@ -3,11 +3,10 @@
 
 require 'json'
 require 'net/http'
-require 'optparse'
 require 'pathname'
-require 'etc'
 require 'time'
 require 'uri'
+require_relative 'config'
 require_relative 'log_event_parser'
 require_relative 'message_formatter'
 require_relative 'session_log'
@@ -16,24 +15,6 @@ require_relative 'stream_processor'
 module CodexNotify
   module CLI
     SLACK_API = 'https://slack.com/api/chat.postMessage'
-    DEFAULT_ENV_PATH = '.env'
-    DEFAULT_SESSIONS_DIR = Pathname(File.expand_path('~/.codex/sessions'))
-
-    Args = Struct.new(
-      :env_file,
-      :token,
-      :channel,
-      :user_name,
-      :prompt,
-      :title,
-      :include_tools,
-      :throttle_sec,
-      :sessions_dir,
-      :session_file,
-      :poll_sec,
-      :once,
-      keyword_init: true
-    )
 
     module_function
 
@@ -99,23 +80,6 @@ module CodexNotify
       CodexNotify::StreamProcessor.process_codex_log_stream(*args, **kwargs)
     end
 
-    def load_env_file(path = DEFAULT_ENV_PATH, override: false)
-      env_path = Pathname(path)
-      return unless env_path.exist?
-
-      env_path.read.each_line do |raw_line|
-        line = raw_line.strip
-        next if line.empty? || line.start_with?('#') || !line.include?('=')
-
-        key, value = line.split('=', 2)
-        key = key.strip
-        value = value.strip.gsub(/\A['"]|['"]\z/, '')
-        next if !override && ENV[key] && !ENV[key].empty?
-
-        ENV[key] = value
-      end
-    end
-
     def slack_post(token, channel, text, thread_ts = nil)
       payload = { channel:, text: }
       payload[:thread_ts] = thread_ts.to_s if thread_ts
@@ -135,63 +99,24 @@ module CodexNotify
       parsed
     end
 
-    def system_user_name
-      Etc.getlogin || ENV['USER'] || ENV['USERNAME'] || 'user'
-    rescue StandardError
-      ENV['USER'] || ENV['USERNAME'] || 'user'
+    def load_env_file(*args, **kwargs)
+      CodexNotify::Config.load_env_file(*args, **kwargs)
     end
 
-    def getenv_any(keys)
-      keys.each do |key|
-        value = ENV[key]
-        return value if value && !value.empty?
-      end
-      nil
+    def system_user_name(*args, **kwargs)
+      CodexNotify::Config.system_user_name(*args, **kwargs)
     end
 
-    def build_parser
-      options = Args.new(
-        env_file: DEFAULT_ENV_PATH,
-        token: nil,
-        channel: nil,
-        user_name: nil,
-        prompt: nil,
-        title: nil,
-        include_tools: false,
-        throttle_sec: 1.05,
-        sessions_dir: DEFAULT_SESSIONS_DIR.to_s,
-        session_file: nil,
-        poll_sec: 1.0,
-        once: false
-      )
-
-      parser = OptionParser.new do |opts|
-        opts.banner = 'Usage: codex-notify [options]'
-        opts.on('--env-file PATH') { |v| options.env_file = v }
-        opts.on('--token TOKEN') { |v| options.token = v }
-        opts.on('--channel CHANNEL') { |v| options.channel = v }
-        opts.on('--user-name NAME') { |v| options.user_name = v }
-        opts.on('--prompt PROMPT') { |v| options.prompt = v }
-        opts.on('--title TITLE') { |v| options.title = v }
-        opts.on('--include-tools') { options.include_tools = true }
-        opts.on('--throttle-sec FLOAT', Float) { |v| options.throttle_sec = v }
-        opts.on('--sessions-dir PATH') { |v| options.sessions_dir = v }
-        opts.on('--session-file PATH') { |v| options.session_file = v }
-        opts.on('--poll-sec FLOAT', Float) { |v| options.poll_sec = v }
-        opts.on('--once') { options.once = true }
-      end
-
-      [parser, options]
+    def getenv_any(*args, **kwargs)
+      CodexNotify::Config.getenv_any(*args, **kwargs)
     end
 
-    def parse_args(argv = nil)
-      parser, options = build_parser
-      parser.parse!(argv || [])
-      load_env_file(options.env_file)
-      options.token ||= ENV['SLACK_BOT_TOKEN']
-      options.channel ||= ENV['SLACK_CHANNEL']
-      options.user_name ||= ENV['CODEX_NOTIFY_USER_NAME'] || system_user_name
-      options
+    def build_parser(*args, **kwargs)
+      CodexNotify::Config.build_parser(*args, **kwargs)
+    end
+
+    def parse_args(*args, **kwargs)
+      CodexNotify::Config.parse_args(*args, **kwargs)
     end
 
     def main(argv = nil, stdin: nil, stderr: $stderr)

@@ -4,6 +4,7 @@ require_relative 'codex_notify/log_event_parser'
 require_relative 'codex_notify/message_formatter'
 require_relative 'codex_notify/session_log'
 require_relative 'codex_notify/stream_processor'
+require_relative 'codex_notify/config'
 require_relative 'codex_notify/cli'
 
 module CodexNotify
