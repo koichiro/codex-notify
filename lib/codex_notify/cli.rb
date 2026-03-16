@@ -5,6 +5,7 @@ require 'json'
 require 'net/http'
 require 'optparse'
 require 'pathname'
+require 'etc'
 require 'time'
 require 'uri'
 
@@ -18,6 +19,7 @@ module CodexNotify
       :env_file,
       :token,
       :channel,
+      :user_name,
       :prompt,
       :title,
       :include_tools,
@@ -82,8 +84,15 @@ module CodexNotify
       "*#{title}*\n```#{body}```"
     end
 
-    def build_root_text(title, cwd)
-      fmt_block(title, "Codex log monitoring started.\nCWD: #{cwd}")
+    def build_root_text(title, cwd, user_name: 'user', system_user: nil)
+      system_user ||= Etc.getlogin || ENV['USER'] || ENV['USERNAME'] || 'unknown'
+      body = [
+        'Codex log monitoring started.',
+        "CWD: #{cwd}",
+        "Slack User Label: #{user_name}",
+        "System User: #{system_user}"
+      ].join("\n")
+      fmt_block(title, body)
     end
 
     def fmt_plain(title, body)
@@ -316,6 +325,7 @@ module CodexNotify
         env_file: DEFAULT_ENV_PATH,
         token: nil,
         channel: nil,
+        user_name: nil,
         prompt: nil,
         title: nil,
         include_tools: false,
@@ -331,6 +341,7 @@ module CodexNotify
         opts.on('--env-file PATH') { |v| options.env_file = v }
         opts.on('--token TOKEN') { |v| options.token = v }
         opts.on('--channel CHANNEL') { |v| options.channel = v }
+        opts.on('--user-name NAME') { |v| options.user_name = v }
         opts.on('--prompt PROMPT') { |v| options.prompt = v }
         opts.on('--title TITLE') { |v| options.title = v }
         opts.on('--include-tools') { options.include_tools = true }
@@ -350,6 +361,7 @@ module CodexNotify
       load_env_file(options.env_file)
       options.token ||= ENV['SLACK_BOT_TOKEN']
       options.channel ||= ENV['SLACK_CHANNEL']
+      options.user_name ||= ENV['CODEX_NOTIFY_USER_NAME'] || 'user'
       options
     end
 
@@ -463,7 +475,7 @@ module CodexNotify
       files.max_by { |path| path.stat.mtime.to_f }
     end
 
-    def process_codex_log_stream(stream, token:, channel:, root_text:, include_tools: false, throttle_sec: 0.0,
+    def process_codex_log_stream(stream, token:, channel:, root_text:, user_name: 'user', include_tools: false, throttle_sec: 0.0,
                                  post_func: method(:slack_post), sleep_func: Kernel.method(:sleep))
       post_func.call(token, channel, root_text, nil)
       sleep_func.call(throttle_sec)
@@ -503,14 +515,14 @@ module CodexNotify
             next if parts.empty?
 
             if thread_ts
-              post_func.call(token, channel, fmt_plain('user', parts.first), thread_ts)
+              post_func.call(token, channel, fmt_plain(user_name, parts.first), thread_ts)
             else
-              thread_ts = post_func.call(token, channel, fmt_plain('user', parts.first), nil).fetch('ts').to_s
+              thread_ts = post_func.call(token, channel, fmt_plain(user_name, parts.first), nil).fetch('ts').to_s
               thread_ts_by_session[session_id] = thread_ts
             end
             sleep_func.call(throttle_sec)
             parts.drop(1).each do |part|
-              post_func.call(token, channel, fmt_plain('user(cont.)', part), thread_ts)
+              post_func.call(token, channel, fmt_plain("#{user_name}(cont.)", part), thread_ts)
               sleep_func.call(throttle_sec)
             end
             next
@@ -534,7 +546,7 @@ module CodexNotify
 
       cwd = Dir.pwd
       title = args.title || "Codex run: #{File.basename(cwd)}"
-      root_text = build_root_text(title, cwd)
+      root_text = build_root_text(title, cwd, user_name: args.user_name)
       session_file = args.session_file ? Pathname(args.session_file) : find_latest_session_file(Pathname(args.sessions_dir))
       unless session_file&.exist?
         stderr.puts('ERROR: no Codex session log file found')
@@ -552,6 +564,7 @@ module CodexNotify
         token: args.token,
         channel: args.channel,
         root_text:,
+        user_name: args.user_name,
         include_tools: args.include_tools,
         throttle_sec: args.throttle_sec
       )

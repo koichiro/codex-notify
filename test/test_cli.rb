@@ -24,10 +24,11 @@ class CodexNotifyCLITest < Minitest::Test
   end
 
   def test_build_root_text_is_minimal
-    text = CLI.build_root_text('title', '/tmp/project')
+    text = CLI.build_root_text('title', '/tmp/project', user_name: 'alice', system_user: 'koichiro')
     assert_includes text, 'Codex log monitoring started.'
     assert_includes text, 'CWD: /tmp/project'
-    refute_includes text, 'PROMPT'
+    assert_includes text, 'Slack User Label: alice'
+    assert_includes text, 'System User: koichiro'
   end
 
   def test_getenv_any_returns_first_match
@@ -75,15 +76,25 @@ class CodexNotifyCLITest < Minitest::Test
   def test_parse_args_uses_env_file_defaults
     with_tmpdir do |dir|
       env_file = dir.join('.env')
-      env_file.write("SLACK_BOT_TOKEN=xoxb-from-env\nSLACK_CHANNEL=CENV\n")
+      env_file.write("SLACK_BOT_TOKEN=xoxb-from-env\nSLACK_CHANNEL=CENV\nCODEX_NOTIFY_USER_NAME=alice\n")
       ENV.delete('SLACK_BOT_TOKEN')
       ENV.delete('SLACK_CHANNEL')
+      ENV.delete('CODEX_NOTIFY_USER_NAME')
 
       args = CLI.parse_args(['--env-file', env_file.to_s])
 
       assert_equal 'xoxb-from-env', args.token
       assert_equal 'CENV', args.channel
+      assert_equal 'alice', args.user_name
     end
+  end
+
+  def test_parse_args_prefers_cli_user_name_over_env
+    ENV['CODEX_NOTIFY_USER_NAME'] = 'env-user'
+
+    args = CLI.parse_args(['--user-name', 'cli-user'])
+
+    assert_equal 'cli-user', args.user_name
   end
 
   def test_main_returns_error_without_credentials
@@ -341,6 +352,21 @@ class CodexNotifyCLITest < Minitest::Test
     assert_equal posts[1][:ts], posts[2][:thread_ts]
     assert_includes posts[2][:text], '*assistant*'
     assert_includes posts[2][:text], 'working on it'
+  end
+
+  def test_process_codex_log_stream_uses_custom_user_name
+    posts = []
+    fake_post = lambda do |_token, _channel, text, thread_ts = nil|
+      posts << { text:, thread_ts: }
+      { 'ok' => true, 'ts' => '123.456' }
+    end
+
+    events = StringIO.new('{"type":"event_msg","payload":{"type":"user_message","message":"fix tests"}}')
+
+    CLI.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_text: 'root',
+                                 user_name: 'koichiro', post_func: fake_post, sleep_func: ->(_) {})
+
+    assert(posts.any? { |post| post[:text].include?('*koichiro*') })
   end
 
   def test_process_codex_log_stream_posts_task_complete_message

@@ -27,6 +27,7 @@ It is intended for lightweight run visibility: one small monitoring-start messag
 ## Supported Behavior
 
 - One monitoring-start message with run title and working directory
+- Monitoring-start message also includes the Slack user label and local system user
 - One new Slack thread for each new user prompt
 - Thread replies for:
   - assistant responses
@@ -62,6 +63,7 @@ Create `.env` from `.env.sample`.
 ```env
 SLACK_BOT_TOKEN=xoxb-your-token
 SLACK_CHANNEL=C0123456789
+CODEX_NOTIFY_USER_NAME=user
 CODEX_PROMPT=
 ```
 
@@ -69,6 +71,7 @@ Variables:
 
 - `SLACK_BOT_TOKEN`: Slack bot token used for `chat.postMessage`
 - `SLACK_CHANNEL`: Slack channel ID to receive the run thread
+- `CODEX_NOTIFY_USER_NAME`: Label used for user messages in Slack, default `user`
 - `CODEX_PROMPT`: Optional initial prompt to post as a user message when monitoring begins
 
 CLI flags override environment variables.
@@ -119,6 +122,7 @@ With explicit flags:
 ruby codex-notify.rb \
   --token "$SLACK_BOT_TOKEN" \
   --channel "$SLACK_CHANNEL" \
+  --user-name "koichiro" \
   --title "Codex run: my-project" \
   --prompt "Investigate failing tests"
 ```
