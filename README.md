@@ -38,7 +38,7 @@ It is intended for lightweight run visibility: one small monitoring-start messag
   - `web_search`
   - other completed items
 - Long payloads are split into safe chunks before posting
-- `.env` loading without requiring additional gems
+- `.env` loading via `dotenv`
 
 ## Project Layout
 

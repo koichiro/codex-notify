@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'dotenv'
 require 'etc'
 require 'optparse'
 require 'pathname'
@@ -31,17 +32,8 @@ module CodexNotify
       env_path = Pathname(path)
       return unless env_path.exist?
 
-      env_path.read.each_line do |raw_line|
-        line = raw_line.strip
-        next if line.empty? || line.start_with?('#') || !line.include?('=')
-
-        key, value = line.split('=', 2)
-        key = key.strip
-        value = value.strip.gsub(/\A['"]|['"]\z/, '')
-        next if !override && ENV[key] && !ENV[key].empty?
-
-        ENV[key] = value
-      end
+      loader = override ? Dotenv.method(:overload) : Dotenv.method(:load)
+      loader.call(env_path.to_s)
     end
 
     def system_user_name
