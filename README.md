@@ -78,6 +78,12 @@ CLI flags override environment variables.
 
 ## Usage
 
+Install dependencies first:
+
+```bash
+bundle install
+```
+
 ### Running With Codex
 
 `codex-notify` reads Codex session logs directly, so piping Codex output into this tool is not required.
@@ -101,6 +107,8 @@ Run `codex-notify` separately:
 ```bash
 ruby codex-notify.rb
 ```
+
+The entrypoint loads `bundler/setup`, so `bundle exec` is not required after `bundle install`.
 
 Monitor a specific session file:
 
@@ -154,5 +162,7 @@ Run tests:
 ```bash
 rake
 ```
+
+`Rakefile` also loads `bundler/setup`, so `rake` can be run without `bundle exec` after `bundle install`.
 
 The test suite uses `minitest`, runs through `rake`, and enforces 80% line coverage for files under `lib/`.
