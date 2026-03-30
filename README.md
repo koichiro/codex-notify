@@ -47,7 +47,8 @@ It is intended for lightweight run visibility: one small monitoring-start messag
 ├── .env.sample
 ├── .gitignore
 ├── README.md
-├── codex-notify.rb
+├── bin/
+│   └── codex-notify.rb
 ├── Rakefile
 ├── lib/
 │   └── codex_notify/
@@ -105,7 +106,7 @@ codex --no-alt-screen resume
 Run `codex-notify` separately:
 
 ```bash
-./codex-notify.rb
+./bin/codex-notify.rb
 ```
 
 The entrypoint loads `bundler/setup`, so `bundle exec` is not required after `bundle install`.
@@ -113,13 +114,13 @@ The entrypoint loads `bundler/setup`, so `bundle exec` is not required after `bu
 Monitor a specific session file:
 
 ```bash
-./codex-notify.rb --session-file ~/.codex/sessions/2026/03/10/rollout-....jsonl
+./bin/codex-notify.rb --session-file ~/.codex/sessions/2026/03/10/rollout-....jsonl
 ```
 
 Process the current contents once and exit:
 
 ```bash
-./codex-notify.rb --once
+./bin/codex-notify.rb --once
 ```
 
 In normal follow mode, `codex-notify` starts from the end of the session log and only posts prompts and responses appended after the monitor starts.
@@ -127,7 +128,7 @@ In normal follow mode, `codex-notify` starts from the end of the session log and
 With explicit flags:
 
 ```bash
-./codex-notify.rb \
+./bin/codex-notify.rb \
   --token "$SLACK_BOT_TOKEN" \
   --channel "$SLACK_CHANNEL" \
   --user-name "koichiro" \
@@ -138,19 +139,19 @@ With explicit flags:
 Including tool events:
 
 ```bash
-./codex-notify.rb --include-tools
+./bin/codex-notify.rb --include-tools
 ```
 
 Using a custom env file:
 
 ```bash
-./codex-notify.rb --env-file .env.local
+./bin/codex-notify.rb --env-file .env.local
 ```
 
 Using a custom sessions directory:
 
 ```bash
-./codex-notify.rb --sessions-dir ~/.codex/sessions
+./bin/codex-notify.rb --sessions-dir ~/.codex/sessions
 ```
 
 Without `--no-alt-screen`, Codex switches to its alternate screen UI and the execution logs used by this tool are not emitted in the expected form.
