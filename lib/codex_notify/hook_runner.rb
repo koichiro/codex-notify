@@ -38,8 +38,6 @@ module CodexNotify
         handle_post_tool_use(payload)
       when 'Stop'
         handle_stop(payload)
-      else
-        @stdout.puts(JSON.generate({ continue: true }))
       end
 
       0
@@ -90,7 +88,6 @@ module CodexNotify
 
     def handle_session_start(payload)
       ensure_session_thread(payload)
-      @stdout.puts(JSON.generate({ continue: true }))
     end
 
     def handle_user_prompt_submit(payload)
@@ -99,19 +96,16 @@ module CodexNotify
       unless prompt.nil? || prompt.to_s.empty?
         @client.post(HookFormatter.prompt_text(user_name: @user_name, prompt: prompt), thread_ts: thread_ts)
       end
-      @stdout.puts(JSON.generate({ continue: true }))
     end
 
     def handle_pre_tool_use(payload)
       _session_id, thread_ts = ensure_session_thread(payload)
       @client.post(HookFormatter.format_pre_tool(payload), thread_ts: thread_ts)
-      @stdout.puts(JSON.generate({ continue: true }))
     end
 
     def handle_post_tool_use(payload)
       _session_id, thread_ts = ensure_session_thread(payload)
       @client.post(HookFormatter.format_post_tool(payload), thread_ts: thread_ts)
-      @stdout.puts(JSON.generate({ continue: true }))
     end
 
     def handle_stop(payload)
@@ -120,7 +114,6 @@ module CodexNotify
       unless message.nil? || message.to_s.empty?
         @client.post(HookFormatter.assistant_text(message), thread_ts: thread_ts)
       end
-      @stdout.puts(JSON.generate({ continue: true }))
     end
   end
 end
