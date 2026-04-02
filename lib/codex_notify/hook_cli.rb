@@ -30,7 +30,6 @@ module CodexNotify
       )
       runner.run(event_name:, payload:)
     rescue Interrupt
-      stdout.puts(JSON.generate({ continue: true }))
       0
     rescue StandardError => e
       stderr.puts("ERROR: #{e.class}: #{e.message}")
