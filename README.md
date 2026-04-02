@@ -204,9 +204,28 @@ Without `--no-alt-screen`, Codex switches to its alternate screen UI and the exe
 
 Codex Hooks can be used instead of session-log tailing.
 
-1. Copy `.codex/hooks.json.example` to either `~/.codex/hooks.json` or `<repo>/.codex/hooks.json`.
-2. Set `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`.
-3. Run Codex normally.
+1. Enable hooks in `~/.codex/config.toml`.
+2. Place `codex-notify-hook` at a stable absolute path.
+3. Create `~/.codex/hooks.json` or `<repo>/.codex/hooks.json`.
+4. Set `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`.
+5. Restart Codex and run it normally.
+
+Example `~/.codex/config.toml` addition:
+
+```toml
+[features]
+codex_hooks = true
+```
+
+Recommended install location:
+
+```bash
+mkdir -p /home/codex-notify/.bin
+cp /path/to/codex-notify/bin/codex-notify-hook /home/codex-notify/.bin/codex-notify-hook
+chmod +x /home/codex-notify/.bin/codex-notify-hook
+```
+
+Use an absolute path for hook commands. Codex runs hooks from the current project working directory, so relative paths are fragile when you want to share one hook command across multiple repositories.
 
 Example hook config:
 
@@ -215,34 +234,54 @@ Example hook config:
   "hooks": {
     "SessionStart": [
       {
-        "type": "command",
-        "command": "./bin/codex-notify-hook --event SessionStart"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/codex-notify/.bin/codex-notify-hook --event SessionStart"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
       {
-        "type": "command",
-        "command": "./bin/codex-notify-hook --event UserPromptSubmit"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/codex-notify/.bin/codex-notify-hook --event UserPromptSubmit"
+          }
+        ]
       }
     ],
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "type": "command",
-        "command": "./bin/codex-notify-hook --event PreToolUse"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/codex-notify/.bin/codex-notify-hook --event PreToolUse"
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Bash",
-        "type": "command",
-        "command": "./bin/codex-notify-hook --event PostToolUse"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/codex-notify/.bin/codex-notify-hook --event PostToolUse"
+          }
+        ]
       }
     ],
     "Stop": [
       {
-        "type": "command",
-        "command": "./bin/codex-notify-hook --event Stop"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/codex-notify/.bin/codex-notify-hook --event Stop"
+          }
+        ]
       }
     ]
   }
@@ -252,7 +291,7 @@ Example hook config:
 The hook command reads each event payload from standard input:
 
 ```bash
-./bin/codex-notify-hook --event UserPromptSubmit
+/home/codex-notify/.bin/codex-notify-hook --event UserPromptSubmit
 ```
 
 Useful options:
@@ -261,6 +300,13 @@ Useful options:
 - `--user-name "koichiro"`: override the user label
 - `--state-file ~/.codex-notify-hook/state.json`: change where session thread mappings are stored
 - `--env-file .env.local`: load a different env file
+
+Notes:
+
+- Hook config uses matcher groups. Each event contains an array of groups, and each group contains a `hooks` array of handlers.
+- `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` are the event names.
+- This executable pins `BUNDLE_GEMFILE` to its own project, so it can be launched from other repositories without resolving the wrong `Gemfile`.
+- The hook implementation keeps normal successful runs quiet so Codex does not show extra debug-style output from the hook itself.
 
 Hook mode does not require `--no-alt-screen`, because it does not depend on session-log tailing.
 
