@@ -147,6 +147,62 @@ class CodexNotifyHookCLITest < Minitest::Test
     end
   end
 
+  def test_reset_marker_clears_thread_without_posting
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      state_file = dir.join('state.json')
+      session_payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app' }
+
+      posts = []
+      original_new = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          ts = thread_ts || (posts.count { |(_t, ts_value)| ts_value.nil? } == 1 ? '1000.01' : '2000.01')
+          { 'ok' => true, 'ts' => ts }
+        end
+      end
+
+      begin
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new(JSON.generate(session_payload.merge('prompt' => 'first prompt'))),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new(JSON.generate(session_payload.merge('prompt' => '---'))),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new(JSON.generate(session_payload.merge('prompt' => 'second prompt'))),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_new)
+        end
+      end
+
+      root_posts = posts.select { |(_text, thread_ts)| thread_ts.nil? }
+      reply_posts = posts.select { |(_text, thread_ts)| !thread_ts.nil? }
+
+      assert_equal 2, root_posts.size
+      assert_equal 0, reply_posts.size
+      assert_includes root_posts[0].first, 'first prompt'
+      assert_includes root_posts[1].first, 'second prompt'
+      refute posts.any? { |(text, _thread_ts)| text.include?('---') }
+    end
+  end
+
   private
 
   def with_tmpdir

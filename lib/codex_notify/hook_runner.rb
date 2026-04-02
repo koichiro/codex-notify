@@ -8,6 +8,8 @@ require_relative 'slack_client'
 
 module CodexNotify
   class HookRunner
+    RESET_THREAD_PROMPT = '---'
+
     EVENT_ALIASES = {
       'userpromptsubmit' => 'UserPromptSubmit',
       'pretooluse' => 'PreToolUse',
@@ -88,6 +90,12 @@ module CodexNotify
       prompt = payload['prompt'] || payload.dig('payload', 'prompt')
       return if prompt.nil? || prompt.to_s.empty?
 
+      session_id = session_id_from(payload) || '__default__'
+      if reset_thread_prompt?(prompt)
+        @store.clear_thread(session_id)
+        return
+      end
+
       prompt_text = HookFormatter.prompt_text(user_name: @user_name, prompt: prompt)
       _session_id, thread_ts, created = ensure_session_thread(payload, root_text: prompt_text)
       return if thread_ts.nil?
@@ -118,6 +126,10 @@ module CodexNotify
       unless message.nil? || message.to_s.empty?
         @client.post(HookFormatter.assistant_text(message), thread_ts: thread_ts)
       end
+    end
+
+    def reset_thread_prompt?(prompt)
+      prompt.to_s.strip == RESET_THREAD_PROMPT
     end
   end
 end
