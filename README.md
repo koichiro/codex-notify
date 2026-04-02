@@ -31,12 +31,13 @@ This is the original mode. It tails a Codex session log under `~/.codex/sessions
 This mode uses Codex Hooks instead of transcript tailing.
 
 - One Slack thread per Codex `session_id`
-- `SessionStart` creates the session thread root if needed
-- `UserPromptSubmit` posts the user prompt into that thread
+- The first `UserPromptSubmit` becomes the Slack thread root
+- Later `UserPromptSubmit` events in the same session are posted as replies in that thread
+- `SessionStart` is accepted but does not post a Slack message
 - `PreToolUse` and `PostToolUse` can post Bash tool activity
 - `Stop` posts `last_assistant_message` for the completed turn
 
-This keeps all prompts and replies for the same Codex session in one Slack thread and does not require tailing a session log.
+This keeps all prompts and replies for the same Codex session in one Slack thread and does not require tailing a session log. It also avoids a separate "hook started" root message.
 
 ## How It Works
 
@@ -53,7 +54,7 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
 
 1. Codex invokes `bin/codex-notify-hook` for configured hook events.
 2. The hook command reads the JSON payload from standard input.
-3. A per-session Slack thread is created and stored on first use.
+3. The first `UserPromptSubmit` creates the per-session Slack thread and stores its thread timestamp.
 4. Later hook events for the same `session_id` are posted into the same thread.
 
 ## Supported Behavior
@@ -66,7 +67,8 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
   - optional thread replies for `command_execution`, `file_change`, `web_search`, and other completed items
 - Hook mode:
   - one Slack thread per Codex session
-  - prompt, Bash tool activity, and final assistant messages posted from hook events
+  - the first user prompt becomes the thread root
+  - prompt replies, Bash tool activity, and final assistant messages posted from hook events
   - local state file used to remember Slack thread timestamps across hook invocations
 - Shared:
   - long payloads are split into safe chunks before posting

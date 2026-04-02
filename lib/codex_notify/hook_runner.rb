@@ -67,23 +67,17 @@ module CodexNotify
       @store.thread_ts_for(session_id)
     end
 
-    def ensure_session_thread(payload)
+    def ensure_session_thread(payload, root_text: nil)
       session_id = session_id_from(payload) || '__default__'
       thread_ts = thread_for(session_id)
-      return [session_id, thread_ts] if thread_ts
+      return [session_id, thread_ts, false] if thread_ts
 
-      cwd = cwd_from(payload)
-      title = @title || "Codex session: #{File.basename(cwd)}"
-      root_text = HookFormatter.session_root_text(
-        title: title,
-        cwd: cwd,
-        session_id: session_id,
-        user_name: @user_name
-      )
+      return [session_id, nil, false] if root_text.nil? || root_text.to_s.empty?
+
       response = @client.post(root_text)
       thread_ts = response.fetch('ts').to_s
       @store.save_thread_ts(session_id, thread_ts)
-      [session_id, thread_ts]
+      [session_id, thread_ts, true]
     end
 
     def handle_session_start(payload)
@@ -91,25 +85,35 @@ module CodexNotify
     end
 
     def handle_user_prompt_submit(payload)
-      _session_id, thread_ts = ensure_session_thread(payload)
       prompt = payload['prompt'] || payload.dig('payload', 'prompt')
-      unless prompt.nil? || prompt.to_s.empty?
-        @client.post(HookFormatter.prompt_text(user_name: @user_name, prompt: prompt), thread_ts: thread_ts)
-      end
+      return if prompt.nil? || prompt.to_s.empty?
+
+      prompt_text = HookFormatter.prompt_text(user_name: @user_name, prompt: prompt)
+      _session_id, thread_ts, created = ensure_session_thread(payload, root_text: prompt_text)
+      return if thread_ts.nil?
+      return if created
+
+      @client.post(prompt_text, thread_ts: thread_ts)
     end
 
     def handle_pre_tool_use(payload)
-      _session_id, thread_ts = ensure_session_thread(payload)
+      _session_id, thread_ts, = ensure_session_thread(payload)
+      return if thread_ts.nil?
+
       @client.post(HookFormatter.format_pre_tool(payload), thread_ts: thread_ts)
     end
 
     def handle_post_tool_use(payload)
-      _session_id, thread_ts = ensure_session_thread(payload)
+      _session_id, thread_ts, = ensure_session_thread(payload)
+      return if thread_ts.nil?
+
       @client.post(HookFormatter.format_post_tool(payload), thread_ts: thread_ts)
     end
 
     def handle_stop(payload)
-      _session_id, thread_ts = ensure_session_thread(payload)
+      _session_id, thread_ts, = ensure_session_thread(payload)
+      return if thread_ts.nil?
+
       message = payload['last_assistant_message'] || payload.dig('payload', 'last_assistant_message')
       unless message.nil? || message.to_s.empty?
         @client.post(HookFormatter.assistant_text(message), thread_ts: thread_ts)
