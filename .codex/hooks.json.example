@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/.bin/codex-notify-hook --event SessionStart"
+            "command": "/home/codex-notify/bin/codex-notify-hook --event SessionStart"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/.bin/codex-notify-hook --event UserPromptSubmit"
+            "command": "/home/codex-notify/bin/codex-notify-hook --event UserPromptSubmit"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/.bin/codex-notify-hook --event PreToolUse"
+            "command": "/home/codex-notify/bin/codex-notify-hook --event PreToolUse"
           }
         ]
       }
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/.bin/codex-notify-hook --event PostToolUse"
+            "command": "/home/codex-notify/bin/codex-notify-hook --event PostToolUse"
           }
         ]
       }
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/.bin/codex-notify-hook --event Stop"
+            "command": "/home/codex-notify/bin/codex-notify-hook --event Stop"
           }
         ]
       }

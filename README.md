@@ -220,9 +220,9 @@ codex_hooks = true
 Recommended install location:
 
 ```bash
-mkdir -p /home/codex-notify/.bin
-cp /path/to/codex-notify/bin/codex-notify-hook /home/codex-notify/.bin/codex-notify-hook
-chmod +x /home/codex-notify/.bin/codex-notify-hook
+mkdir -p /home/codex-notify/bin
+cp /path/to/codex-notify/bin/codex-notify-hook /home/codex-notify/bin/codex-notify-hook
+chmod +x /home/codex-notify/bin/codex-notify-hook
 ```
 
 Use an absolute path for hook commands. Codex runs hooks from the current project working directory, so relative paths are fragile when you want to share one hook command across multiple repositories.
@@ -237,7 +237,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/.bin/codex-notify-hook --event SessionStart"
+            "command": "/home/codex-notify/bin/codex-notify-hook --event SessionStart"
           }
         ]
       }
@@ -247,7 +247,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/.bin/codex-notify-hook --event UserPromptSubmit"
+            "command": "/home/codex-notify/bin/codex-notify-hook --event UserPromptSubmit"
           }
         ]
       }
@@ -258,7 +258,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/.bin/codex-notify-hook --event PreToolUse"
+            "command": "/home/codex-notify/bin/codex-notify-hook --event PreToolUse"
           }
         ]
       }
@@ -269,7 +269,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/.bin/codex-notify-hook --event PostToolUse"
+            "command": "/home/codex-notify/bin/codex-notify-hook --event PostToolUse"
           }
         ]
       }
@@ -279,7 +279,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/.bin/codex-notify-hook --event Stop"
+            "command": "/home/codex-notify/bin/codex-notify-hook --event Stop"
           }
         ]
       }
@@ -291,7 +291,7 @@ Example hook config:
 The hook command reads each event payload from standard input:
 
 ```bash
-/home/codex-notify/.bin/codex-notify-hook --event UserPromptSubmit
+/home/codex-notify/bin/codex-notify-hook --event UserPromptSubmit
 ```
 
 Useful options:
