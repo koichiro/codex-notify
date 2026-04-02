@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "./bin/codex-notify-hook --event SessionStart"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "./bin/codex-notify-hook --event UserPromptSubmit"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "type": "command",
+        "command": "./bin/codex-notify-hook --event PreToolUse"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "type": "command",
+        "command": "./bin/codex-notify-hook --event PostToolUse"
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "./bin/codex-notify-hook --event Stop"
+      }
+    ]
+  }
+}
