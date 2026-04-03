@@ -124,6 +124,8 @@ Variables:
 
 CLI flags override environment variables.
 
+When `--env-file` is omitted, `codex-notify` first looks for `.env` in the current working directory and then falls back to the tool's own project root. This helps hook mode when the executable is launched from another repository.
+
 ## Usage
 
 Install dependencies first:
@@ -157,6 +159,7 @@ Run `codex-notify` separately:
 ```
 
 The entrypoint loads `bundler/setup`, so `bundle exec` is not required after `bundle install`.
+If `rbenv` is available, the entrypoint re-execs itself with the Ruby version from this project's `.ruby-version`, even when launched from another repository.
 
 Monitor a specific session file:
 
@@ -310,6 +313,7 @@ Notes:
 - `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` are the event names.
 - In hook mode, a prompt containing only `---` clears the saved Slack thread for that Codex session. The next user prompt starts a new Slack thread.
 - This executable pins `BUNDLE_GEMFILE` to its own project, so it can be launched from other repositories without resolving the wrong `Gemfile`.
+- If `rbenv` is installed, the executable also re-execs with the Ruby version declared in this project's `.ruby-version`, so another repository's `.ruby-version` does not take precedence.
 - The hook implementation keeps normal successful runs quiet so Codex does not show extra debug-style output from the hook itself.
 
 Hook mode does not require `--no-alt-screen`, because it does not depend on session-log tailing.
