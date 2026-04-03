@@ -124,6 +124,8 @@ Variables:
 
 CLI flags override environment variables.
 
+When `--env-file` is omitted, `codex-notify` first looks for `.env` in the current working directory and then falls back to the tool's own project root. This helps hook mode when the executable is launched from another repository.
+
 ## Usage
 
 Install dependencies first:

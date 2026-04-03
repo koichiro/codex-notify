@@ -9,6 +9,7 @@ module CodexNotify
   module HookConfig
     DEFAULT_ENV_PATH = '.env'
     DEFAULT_STATE_PATH = Pathname(File.expand_path('~/.codex-notify-hook/state.json'))
+    APP_ROOT = Pathname(__dir__).join('../..').expand_path
 
     Args = Struct.new(
       :env_file,
@@ -23,8 +24,20 @@ module CodexNotify
 
     module_function
 
-    def load_env_file(path = DEFAULT_ENV_PATH, override: false)
+    def app_root
+      APP_ROOT
+    end
+
+    def resolve_env_path(path = DEFAULT_ENV_PATH)
       env_path = Pathname(path)
+      return env_path if env_path.absolute?
+
+      [Pathname(Dir.pwd).join(env_path), app_root.join(env_path)].find(&:exist?)
+    end
+
+    def load_env_file(path = DEFAULT_ENV_PATH, override: false)
+      env_path = resolve_env_path(path)
+      return unless env_path
       return unless env_path.exist?
 
       loader = override ? Dotenv.method(:overload) : Dotenv.method(:load)
