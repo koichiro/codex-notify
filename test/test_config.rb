@@ -89,6 +89,34 @@ class CodexNotifyConfigTest < Minitest::Test
     assert_equal 'CROOT', ENV['SLACK_CHANNEL']
   end
 
+  def test_load_env_file_merges_cwd_and_app_root_relative_paths
+    with_tmpdir do |app_root|
+      app_root.join('.env').write("SLACK_BOT_TOKEN=xoxb-app-root\nSLACK_CHANNEL=CROOT\n")
+      ENV.delete('SLACK_BOT_TOKEN')
+      ENV.delete('SLACK_CHANNEL')
+
+      original = Config.method(:app_root)
+      Dir.mktmpdir do |cwd|
+        Pathname(cwd).join('.env').write("CODEX_NOTIFY_USER_NAME=cwd-user\n")
+
+        Dir.chdir(cwd) do
+          with_silenced_warnings do
+            Config.singleton_class.send(:define_method, :app_root) { app_root }
+          end
+
+          args = Config.parse_args([])
+          assert_equal 'xoxb-app-root', args.token
+          assert_equal 'CROOT', args.channel
+          assert_equal 'cwd-user', args.user_name
+        end
+      end
+    ensure
+      with_silenced_warnings do
+        Config.singleton_class.send(:define_method, :app_root, original)
+      end
+    end
+  end
+
   def test_parse_args_prefers_cli_user_name_over_env
     ENV['CODEX_NOTIFY_USER_NAME'] = 'env-user'
 

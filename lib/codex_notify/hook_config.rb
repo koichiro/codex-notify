@@ -28,20 +28,19 @@ module CodexNotify
       APP_ROOT
     end
 
-    def resolve_env_path(path = DEFAULT_ENV_PATH)
+    def resolve_env_paths(path = DEFAULT_ENV_PATH)
       env_path = Pathname(path)
-      return env_path if env_path.absolute?
+      return [env_path] if env_path.absolute?
 
-      [Pathname(Dir.pwd).join(env_path), app_root.join(env_path)].find(&:exist?)
+      [Pathname(Dir.pwd).join(env_path), app_root.join(env_path)].select(&:exist?).uniq
     end
 
     def load_env_file(path = DEFAULT_ENV_PATH, override: false)
-      env_path = resolve_env_path(path)
-      return unless env_path
-      return unless env_path.exist?
+      env_paths = resolve_env_paths(path)
+      return if env_paths.empty?
 
       loader = override ? Dotenv.method(:overload) : Dotenv.method(:load)
-      loader.call(env_path.to_s)
+      loader.call(*env_paths.map(&:to_s))
     end
 
     def system_user_name
