@@ -42,6 +42,35 @@ class CodexNotifyHookConfigTest < Minitest::Test
     end
   end
 
+  def test_parse_args_merges_cwd_and_app_root_relative_paths
+    with_tmpdir do |app_root|
+      app_root.join('.env').write("SLACK_BOT_TOKEN=xoxb-hook\nSLACK_CHANNEL=CHOOK\n")
+      ENV.delete('SLACK_BOT_TOKEN')
+      ENV.delete('SLACK_CHANNEL')
+      ENV.delete('CODEX_NOTIFY_USER_NAME')
+
+      original = HookConfig.method(:app_root)
+      Dir.mktmpdir do |cwd|
+        Pathname(cwd).join('.env').write("CODEX_NOTIFY_USER_NAME=cwd-user\n")
+
+        Dir.chdir(cwd) do
+          with_silenced_warnings do
+            HookConfig.singleton_class.send(:define_method, :app_root) { app_root }
+          end
+
+          args = HookConfig.parse_args([])
+          assert_equal 'xoxb-hook', args.token
+          assert_equal 'CHOOK', args.channel
+          assert_equal 'cwd-user', args.user_name
+        end
+      end
+    ensure
+      with_silenced_warnings do
+        HookConfig.singleton_class.send(:define_method, :app_root, original)
+      end
+    end
+  end
+
   private
 
   def with_tmpdir
