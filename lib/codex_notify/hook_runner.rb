@@ -69,6 +69,13 @@ module CodexNotify
       @store.thread_ts_for(session_id)
     end
 
+    def session_root_text(payload)
+      session_id = session_id_from(payload) || '__default__'
+      cwd = cwd_from(payload)
+      title = @title || "Codex session: #{File.basename(cwd)}"
+      HookFormatter.session_root_text(title:, cwd:, session_id:, user_name: @user_name)
+    end
+
     def ensure_session_thread(payload, root_text: nil)
       session_id = session_id_from(payload) || '__default__'
       thread_ts = thread_for(session_id)
@@ -80,6 +87,28 @@ module CodexNotify
       thread_ts = response.fetch('ts').to_s
       @store.save_thread_ts(session_id, thread_ts)
       [session_id, thread_ts, true]
+    end
+
+    def stale_thread_error?(error)
+      return false unless error.is_a?(SlackClient::Error)
+
+      %w[thread_not_found message_not_found invalid_ts].include?(error.error_code)
+    end
+
+    def post_with_thread_recovery(payload, text, fallback_root_text:)
+      session_id = session_id_from(payload) || '__default__'
+      thread_ts = thread_for(session_id)
+      return if thread_ts.nil?
+
+      @client.post(text, thread_ts: thread_ts)
+    rescue SlackClient::Error => e
+      raise unless stale_thread_error?(e)
+
+      @store.clear_thread(session_id)
+      _session_id, recovered_thread_ts, = ensure_session_thread(payload, root_text: fallback_root_text)
+      return if recovered_thread_ts.nil?
+
+      @client.post(text, thread_ts: recovered_thread_ts)
     end
 
     def handle_session_start(payload)
@@ -101,21 +130,21 @@ module CodexNotify
       return if thread_ts.nil?
       return if created
 
-      @client.post(prompt_text, thread_ts: thread_ts)
+      post_with_thread_recovery(payload, prompt_text, fallback_root_text: prompt_text)
     end
 
     def handle_pre_tool_use(payload)
       _session_id, thread_ts, = ensure_session_thread(payload)
       return if thread_ts.nil?
 
-      @client.post(HookFormatter.format_pre_tool(payload), thread_ts: thread_ts)
+      post_with_thread_recovery(payload, HookFormatter.format_pre_tool(payload), fallback_root_text: session_root_text(payload))
     end
 
     def handle_post_tool_use(payload)
       _session_id, thread_ts, = ensure_session_thread(payload)
       return if thread_ts.nil?
 
-      @client.post(HookFormatter.format_post_tool(payload), thread_ts: thread_ts)
+      post_with_thread_recovery(payload, HookFormatter.format_post_tool(payload), fallback_root_text: session_root_text(payload))
     end
 
     def handle_stop(payload)
@@ -124,7 +153,7 @@ module CodexNotify
 
       message = payload['last_assistant_message'] || payload.dig('payload', 'last_assistant_message')
       unless message.nil? || message.to_s.empty?
-        @client.post(HookFormatter.assistant_text(message), thread_ts: thread_ts)
+        post_with_thread_recovery(payload, HookFormatter.assistant_text(message), fallback_root_text: session_root_text(payload))
       end
     end
 

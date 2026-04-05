@@ -71,6 +71,7 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
   - prompt replies, Bash tool activity, and final assistant messages posted from hook events
   - local state file used to remember Slack thread timestamps across hook invocations
   - a user prompt containing only `---` resets the current session thread without posting to Slack
+  - if a saved Slack thread timestamp becomes stale, the hook clears it, recreates the session thread, and retries the current event once
 - Shared:
   - long payloads are split into safe chunks before posting
   - `.env` loading via `dotenv`
@@ -312,6 +313,7 @@ Notes:
 - Hook config uses matcher groups. Each event contains an array of groups, and each group contains a `hooks` array of handlers.
 - `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` are the event names.
 - In hook mode, a prompt containing only `---` clears the saved Slack thread for that Codex session. The next user prompt starts a new Slack thread.
+- If Slack rejects a saved `thread_ts` with a thread-not-found style error, hook mode now clears that saved value automatically and recreates the thread on the current event.
 - This executable pins `BUNDLE_GEMFILE` to its own project, so it can be launched from other repositories without resolving the wrong `Gemfile`.
 - If `rbenv` is installed, the executable also re-execs with the Ruby version declared in this project's `.ruby-version`, so another repository's `.ruby-version` does not take precedence.
 - The hook implementation keeps normal successful runs quiet so Codex does not show extra debug-style output from the hook itself.
