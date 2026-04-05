@@ -6,6 +6,16 @@ require 'uri'
 
 module CodexNotify
   class SlackClient
+    class Error < StandardError
+      attr_reader :response, :error_code
+
+      def initialize(message, response: nil, error_code: nil)
+        super(message)
+        @response = response
+        @error_code = error_code
+      end
+    end
+
     SLACK_API = 'https://slack.com/api/chat.postMessage'
 
     def initialize(token:, channel:)
@@ -28,7 +38,9 @@ module CodexNotify
       end
 
       parsed = JSON.parse(response.body)
-      raise "Slack API error: #{parsed}" unless parsed['ok']
+      unless parsed['ok']
+        raise Error.new("Slack API error: #{parsed}", response: parsed, error_code: parsed['error'])
+      end
 
       parsed
     end
