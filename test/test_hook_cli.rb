@@ -147,6 +147,66 @@ class CodexNotifyHookCLITest < Minitest::Test
     end
   end
 
+  def test_session_start_with_startup_source_clears_saved_thread
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      state_file = dir.join('state.json')
+      state_file.write(JSON.generate({ 'threads' => { 'session-123' => '1000.01' } }))
+      payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'source' => 'startup' }
+
+      HookCLI.main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'SessionStart'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
+
+      assert_nil JSON.parse(state_file.read).dig('threads', 'session-123')
+    end
+  end
+
+  def test_session_start_with_clear_source_clears_saved_thread
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      state_file = dir.join('state.json')
+      state_file.write(JSON.generate({ 'threads' => { 'session-123' => '1000.01' } }))
+      payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'source' => 'clear' }
+
+      HookCLI.main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'SessionStart'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
+
+      assert_nil JSON.parse(state_file.read).dig('threads', 'session-123')
+    end
+  end
+
+  def test_session_start_with_resume_source_keeps_saved_thread
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      state_file = dir.join('state.json')
+      state_file.write(JSON.generate({ 'threads' => { 'session-123' => '1000.01' } }))
+      payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'source' => 'resume' }
+
+      HookCLI.main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'SessionStart'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
+
+      assert_equal '1000.01', JSON.parse(state_file.read).dig('threads', 'session-123')
+    end
+  end
+
   def test_reset_marker_clears_thread_without_posting
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'

@@ -9,6 +9,7 @@ require_relative 'slack_client'
 module CodexNotify
   class HookRunner
     RESET_THREAD_PROMPT = '---'
+    SESSION_RESET_SOURCES = %w[startup clear].freeze
 
     EVENT_ALIASES = {
       'userpromptsubmit' => 'UserPromptSubmit',
@@ -112,6 +113,8 @@ module CodexNotify
     end
 
     def handle_session_start(payload)
+      session_id = session_id_from(payload) || '__default__'
+      @store.clear_thread(session_id) if reset_thread_on_session_start?(payload)
       ensure_session_thread(payload)
     end
 
@@ -159,6 +162,11 @@ module CodexNotify
 
     def reset_thread_prompt?(prompt)
       prompt.to_s.strip == RESET_THREAD_PROMPT
+    end
+
+    def reset_thread_on_session_start?(payload)
+      source = payload['source'] || payload.dig('payload', 'source')
+      SESSION_RESET_SOURCES.include?(source.to_s)
     end
   end
 end

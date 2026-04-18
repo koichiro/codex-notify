@@ -34,6 +34,8 @@ This mode uses Codex Hooks instead of transcript tailing.
 - The first `UserPromptSubmit` becomes the Slack thread root
 - Later `UserPromptSubmit` events in the same session are posted as replies in that thread
 - `SessionStart` is accepted but does not post a Slack message
+- `SessionStart.source = startup` and `SessionStart.source = clear` reset the saved Slack thread for that session
+- `SessionStart.source = resume` keeps using the existing Slack thread
 - `PreToolUse` and `PostToolUse` can post Bash tool activity
 - `Stop` posts `last_assistant_message` for the completed turn
 
