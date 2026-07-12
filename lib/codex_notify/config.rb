@@ -49,7 +49,7 @@ module CodexNotify
     end
 
     def system_user_name
-      Etc.getlogin || ENV['USER'] || ENV['USERNAME'] || 'user'
+      ENV['USER'] || ENV['USERNAME'] || Etc.getlogin || 'user'
     rescue StandardError
       ENV['USER'] || ENV['USERNAME'] || 'user'
     end
