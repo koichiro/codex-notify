@@ -217,14 +217,16 @@ Codex Hooks can be used instead of session-log tailing.
 2. Place `codex-notify-hook` at a stable absolute path.
 3. Create `~/.codex/hooks.json` or `<repo>/.codex/hooks.json`.
 4. Set `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`.
-5. Restart Codex and run it normally.
+5. Restart Codex, review and trust the hook definition, and run it normally.
 
 Example `~/.codex/config.toml` addition:
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
+
+Hooks are enabled by default in current Codex releases, so this setting is only needed if hooks were previously disabled. `codex_hooks` is a deprecated compatibility alias; use `hooks` for new configuration.
 
 Recommended install location:
 
@@ -314,11 +316,14 @@ Notes:
 
 - Hook config uses matcher groups. Each event contains an array of groups, and each group contains a `hooks` array of handlers.
 - `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` are the event names.
+- Current Codex releases require non-managed command hooks to be reviewed and trusted. In Codex CLI, use `/hooks` to inspect and trust a new or changed hook definition. Until it is trusted, Codex skips it.
+- Current hook payloads provide Bash commands under `tool_input.command` and completed tool results under `tool_response`. Legacy payload shapes remain supported by `codex-notify-hook`.
 - In hook mode, a prompt containing only `---` clears the saved Slack thread for that Codex session. The next user prompt starts a new Slack thread.
 - If Slack rejects a saved `thread_ts` with a thread-not-found style error, hook mode now clears that saved value automatically and recreates the thread on the current event.
 - This executable pins `BUNDLE_GEMFILE` to its own project, so it can be launched from other repositories without resolving the wrong `Gemfile`.
 - If `rbenv` is installed, the executable also re-execs with the Ruby version declared in this project's `.ruby-version`, so another repository's `.ruby-version` does not take precedence.
 - The hook implementation keeps normal successful runs quiet so Codex does not show extra debug-style output from the hook itself.
+- When using the macOS ChatGPT/Codex app, use an absolute hook command path and keep credentials in the tool's `.env` file. GUI apps may not inherit the same `PATH` or environment variables as an interactive shell, so verify that the command can locate Ruby, Bundler, and the installed gems.
 
 Hook mode does not require `--no-alt-screen`, because it does not depend on session-log tailing.
 

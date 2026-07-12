@@ -29,7 +29,13 @@ module CodexNotify
     end
 
     def format_pre_tool(event)
-      command = event['tool_input'] || event['command'] || event.dig('payload', 'command')
+      tool_input = event['tool_input']
+      command = if tool_input.is_a?(Hash)
+                  tool_input['command']
+                else
+                  tool_input
+                end
+      command ||= event['command'] || event.dig('payload', 'command')
       if command.nil? || command.to_s.empty?
         payload = JSON.pretty_generate(event)
         return tool_text('tool', payload)
@@ -39,9 +45,14 @@ module CodexNotify
     end
 
     def format_post_tool(event)
-      output = event['tool_output'] || event['output'] || event.dig('payload', 'output')
-      exit_code = event['exit_code'] || event.dig('payload', 'exit_code')
-      stderr = event['stderr'] || event.dig('payload', 'stderr')
+      tool_response = event['tool_response']
+      response = tool_response.is_a?(Hash) ? tool_response : {}
+
+      output = response['output'] || response['stdout'] || tool_response
+      output ||= event['tool_output'] || event['output'] || event.dig('payload', 'output')
+      exit_code = response['exit_code'] || response['exitCode']
+      exit_code ||= event['exit_code'] || event.dig('payload', 'exit_code')
+      stderr = response['stderr'] || event['stderr'] || event.dig('payload', 'stderr')
 
       parts = []
       parts << "[exit_code] #{exit_code}" unless exit_code.nil?

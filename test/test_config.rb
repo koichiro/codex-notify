@@ -142,6 +142,22 @@ class CodexNotifyConfigTest < Minitest::Test
     end
   end
 
+  def test_system_user_name_prefers_environment_user_over_login_name
+    ENV['USER'] = 'koichiro'
+    ENV.delete('USERNAME')
+
+    original = Etc.method(:getlogin)
+    with_silenced_warnings do
+      Etc.singleton_class.send(:define_method, :getlogin) { 'root' }
+    end
+
+    assert_equal 'koichiro', Config.system_user_name
+  ensure
+    with_silenced_warnings do
+      Etc.singleton_class.send(:define_method, :getlogin, original)
+    end
+  end
+
   private
 
   def with_tmpdir
