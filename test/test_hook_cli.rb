@@ -69,6 +69,81 @@ class CodexNotifyHookCLITest < Minitest::Test
     end
   end
 
+  def test_normal_mode_suppresses_internal_overview_prompt
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      payload = {
+        'session_id' => 'session-123',
+        'cwd' => '/tmp/app',
+        'prompt' => internal_overview_prompt('/tmp/app')
+      }
+
+      posts = []
+      original_new = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
+        end
+      end
+
+      begin
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new(JSON.generate(payload)),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_new)
+        end
+      end
+
+      assert_empty posts
+    end
+  end
+
+  def test_debug_mode_keeps_internal_overview_prompt_visible
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      payload = {
+        'session_id' => 'session-123',
+        'cwd' => '/tmp/app',
+        'prompt' => internal_overview_prompt('/tmp/app')
+      }
+
+      posts = []
+      original_new = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
+        end
+      end
+
+      begin
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--mode', 'debug', '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new(JSON.generate(payload)),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_new)
+        end
+      end
+
+      assert_equal 1, posts.size
+      assert_includes posts.first.first, '# Overview'
+    end
+  end
+
   def test_stop_posts_last_assistant_message_in_existing_thread
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
@@ -500,5 +575,17 @@ class CodexNotifyHookCLITest < Minitest::Test
     yield
   ensure
     $VERBOSE = original_verbose
+  end
+
+  def internal_overview_prompt(project_path)
+    <<~PROMPT
+      # Overview
+
+      Generate 0 to 3 hyperpersonalized suggestions for what this user can do with Codex in this local project: #{project_path}
+
+      Get an understanding of the user's intent and goals by deeply viewing their connected apps. Suggest actionable tasks that they would actually act on/click.
+      Infer what the user works on and their style from their connected apps.
+      Optimize for relief: choose suggestions that make the user's life easier, reduce an open loop, unblock work, or prepare them for something that is about to matter.
+    PROMPT
   end
 end

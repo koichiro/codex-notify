@@ -11,6 +11,11 @@ module CodexNotify
   class HookRunner
     RESET_THREAD_PROMPT = '---'
     SESSION_RESET_SOURCES = %w[startup clear].freeze
+    INTERNAL_OVERVIEW_PROMPT_MARKERS = [
+      '# Overview',
+      'Generate 0 to 3 hyperpersonalized suggestions for what this user can do with Codex in this local project',
+      "Suggest actionable tasks that they would actually act on/click"
+    ].freeze
 
     EVENT_ALIASES = {
       'userpromptsubmit' => 'UserPromptSubmit',
@@ -126,6 +131,7 @@ module CodexNotify
     def handle_user_prompt_submit(payload)
       prompt = payload['prompt'] || payload.dig('payload', 'prompt')
       return if prompt.nil? || prompt.to_s.empty?
+      return if normal? && internal_overview_prompt?(prompt)
 
       session_id = session_id_from(payload) || '__default__'
       if reset_thread_prompt?(prompt)
@@ -184,6 +190,15 @@ module CodexNotify
     def reset_thread_on_session_start?(payload)
       source = payload['source'] || payload.dig('payload', 'source')
       SESSION_RESET_SOURCES.include?(source.to_s)
+    end
+
+    def internal_overview_prompt?(prompt)
+      text = prompt.to_s
+      INTERNAL_OVERVIEW_PROMPT_MARKERS.all? { |marker| text.include?(marker) }
+    end
+
+    def normal?
+      @mode == 'normal'
     end
 
     def debug?
