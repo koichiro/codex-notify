@@ -362,6 +362,130 @@ class CodexNotifyHookCLITest < Minitest::Test
     end
   end
 
+  def test_normal_mode_does_not_post_session_or_tool_events
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      posts = []
+      original_post = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
+        end
+      end
+
+      begin
+        {
+          'SessionStart' => { 'source' => 'startup' },
+          'PreToolUse' => { 'tool_name' => 'Bash', 'tool_input' => { 'command' => 'pwd' } },
+          'PostToolUse' => { 'tool_name' => 'Bash', 'tool_response' => { 'output' => '/tmp' } }
+        }.each do |event_name, extra_payload|
+          HookCLI.main(
+            ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', event_name],
+            stdin: StringIO.new(JSON.generate({ 'session_id' => 'session-123', 'cwd' => '/tmp/app' }.merge(extra_payload))),
+            stderr: StringIO.new,
+            stdout: StringIO.new
+          )
+        end
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_post)
+        end
+      end
+
+      assert_empty posts
+    end
+  end
+
+  def test_debug_mode_posts_session_and_tool_events
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      posts = []
+      original_post = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
+        end
+      end
+
+      begin
+        {
+          'SessionStart' => { 'source' => 'startup' },
+          'PreToolUse' => { 'tool_name' => 'Bash', 'tool_input' => { 'command' => 'pwd' } },
+          'PostToolUse' => { 'tool_name' => 'Bash', 'tool_response' => { 'output' => '/tmp' } }
+        }.each do |event_name, extra_payload|
+          HookCLI.main(
+            ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--mode', 'debug', '--event', event_name],
+            stdin: StringIO.new(JSON.generate({ 'session_id' => 'session-123', 'cwd' => '/tmp/app' }.merge(extra_payload))),
+            stderr: StringIO.new,
+            stdout: StringIO.new
+          )
+        end
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_post)
+        end
+      end
+
+      assert_equal 3, posts.size
+      assert_nil posts.first.last
+      assert_includes posts.first.first, 'Codex hook notification started.'
+      assert posts.drop(1).all? { |(_text, thread_ts)| thread_ts == '1000.01' }
+      assert posts.any? { |(text, _thread_ts)| text.include?('$ pwd') }
+      assert posts.any? { |(text, _thread_ts)| text.include?('/tmp') }
+    end
+  end
+
+  def test_permission_request_posts_in_normal_mode
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      posts = []
+      original_post = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
+        end
+      end
+
+      begin
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new(JSON.generate('session_id' => 'session-123', 'cwd' => '/tmp/app', 'prompt' => 'run tests')),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'PermissionRequest'],
+          stdin: StringIO.new(JSON.generate(
+            'session_id' => 'session-123',
+            'cwd' => '/tmp/app',
+            'tool_name' => 'Bash',
+            'tool_input' => { 'description' => 'Allow network access?' }
+          )),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_post)
+        end
+      end
+
+      assert_equal 2, posts.size
+      assert_includes posts.last.first, 'approval required: Bash'
+      assert_includes posts.last.first, 'Allow network access?'
+      assert_equal '1000.01', posts.last.last
+    end
+  end
+
   private
 
   def with_tmpdir

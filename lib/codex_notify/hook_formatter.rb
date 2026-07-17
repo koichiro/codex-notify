@@ -61,5 +61,13 @@ module CodexNotify
       parts = [JSON.pretty_generate(event)] if parts.empty?
       tool_text('tool', parts.join("\n\n"))
     end
+
+    def format_permission_request(event)
+      tool_name = event['tool_name'] || event.dig('payload', 'tool_name') || 'tool'
+      tool_input = event['tool_input'] || event.dig('payload', 'tool_input')
+      description = tool_input['description'] if tool_input.is_a?(Hash)
+      description ||= 'Codex is waiting for your approval.'
+      tool_text("approval required: #{tool_name}", description)
+    end
   end
 end
