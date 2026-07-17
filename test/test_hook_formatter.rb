@@ -44,4 +44,14 @@ class CodexNotifyHookFormatterTest < Minitest::Test
     assert_includes post_text, '[exit_code] 0'
     assert_includes post_text, "[output]\n/tmp"
   end
+
+  def test_formats_permission_request
+    text = HookFormatter.format_permission_request(
+      'tool_name' => 'Bash',
+      'tool_input' => { 'description' => 'Allow network access?' }
+    )
+
+    assert_includes text, 'approval required: Bash'
+    assert_includes text, 'Allow network access?'
+  end
 end

@@ -2,6 +2,7 @@
 
 require 'json'
 require 'pathname'
+require_relative 'hook_config'
 require_relative 'hook_store'
 require_relative 'hook_formatter'
 require_relative 'slack_client'
@@ -15,15 +16,17 @@ module CodexNotify
       'userpromptsubmit' => 'UserPromptSubmit',
       'pretooluse' => 'PreToolUse',
       'posttooluse' => 'PostToolUse',
+      'permissionrequest' => 'PermissionRequest',
       'stop' => 'Stop',
       'sessionstart' => 'SessionStart'
     }.freeze
 
-    def initialize(token:, channel:, user_name:, title:, state_file:, stdout: $stdout)
+    def initialize(token:, channel:, user_name:, title:, state_file:, mode: HookConfig::DEFAULT_MODE, stdout: $stdout)
       @client = SlackClient.new(token:, channel:)
       @store = HookStore.new(state_file)
       @user_name = user_name
       @title = title
+      @mode = mode
       @stdout = stdout
     end
 
@@ -39,6 +42,8 @@ module CodexNotify
         handle_pre_tool_use(payload)
       when 'PostToolUse'
         handle_post_tool_use(payload)
+      when 'PermissionRequest'
+        handle_permission_request(payload)
       when 'Stop'
         handle_stop(payload)
       end
@@ -115,7 +120,7 @@ module CodexNotify
     def handle_session_start(payload)
       session_id = session_id_from(payload) || '__default__'
       @store.clear_thread(session_id) if reset_thread_on_session_start?(payload)
-      ensure_session_thread(payload)
+      ensure_session_thread(payload, root_text: session_root_text(payload)) if debug?
     end
 
     def handle_user_prompt_submit(payload)
@@ -137,6 +142,8 @@ module CodexNotify
     end
 
     def handle_pre_tool_use(payload)
+      return unless debug?
+
       _session_id, thread_ts, = ensure_session_thread(payload)
       return if thread_ts.nil?
 
@@ -144,10 +151,20 @@ module CodexNotify
     end
 
     def handle_post_tool_use(payload)
+      return unless debug?
+
       _session_id, thread_ts, = ensure_session_thread(payload)
       return if thread_ts.nil?
 
       post_with_thread_recovery(payload, HookFormatter.format_post_tool(payload), fallback_root_text: session_root_text(payload))
+    end
+
+    def handle_permission_request(payload)
+      text = HookFormatter.format_permission_request(payload)
+      _session_id, thread_ts, created = ensure_session_thread(payload, root_text: text)
+      return if thread_ts.nil? || created
+
+      post_with_thread_recovery(payload, text, fallback_root_text: text)
     end
 
     def handle_stop(payload)
@@ -167,6 +184,10 @@ module CodexNotify
     def reset_thread_on_session_start?(payload)
       source = payload['source'] || payload.dig('payload', 'source')
       SESSION_RESET_SOURCES.include?(source.to_s)
+    end
+
+    def debug?
+      @mode == 'debug'
     end
   end
 end

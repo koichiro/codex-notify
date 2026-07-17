@@ -26,6 +26,7 @@ module CodexNotify
         user_name: args.user_name,
         title: args.title,
         state_file: args.state_file,
+        mode: args.mode,
         stdout: stdout
       )
       runner.run(event_name:, payload:)

@@ -9,6 +9,8 @@ module CodexNotify
   module HookConfig
     DEFAULT_ENV_PATH = '.env'
     DEFAULT_STATE_PATH = Pathname(File.expand_path('~/.codex-notify-hook/state.json'))
+    DEFAULT_MODE = 'normal'
+    MODES = %w[normal debug].freeze
     APP_ROOT = Pathname(__dir__).join('../..').expand_path
 
     Args = Struct.new(
@@ -19,6 +21,7 @@ module CodexNotify
       :title,
       :state_file,
       :event_name,
+      :mode,
       keyword_init: true
     )
 
@@ -57,7 +60,8 @@ module CodexNotify
         user_name: nil,
         title: nil,
         state_file: DEFAULT_STATE_PATH.to_s,
-        event_name: nil
+        event_name: nil,
+        mode: nil
       )
 
       parser = OptionParser.new do |opts|
@@ -69,6 +73,7 @@ module CodexNotify
         opts.on('--title TITLE') { |v| options.title = v }
         opts.on('--state-file PATH') { |v| options.state_file = v }
         opts.on('--event NAME') { |v| options.event_name = v }
+        opts.on('--mode MODE', MODES) { |v| options.mode = v }
       end
 
       [parser, options]
@@ -83,6 +88,8 @@ module CodexNotify
       options.user_name ||= ENV['CODEX_NOTIFY_USER_NAME'] || system_user_name
       options.title ||= ENV['CODEX_NOTIFY_TITLE']
       options.event_name ||= ENV['CODEX_HOOK_EVENT'] || ENV['CODEX_NOTIFY_HOOK_EVENT']
+      options.mode ||= ENV['CODEX_NOTIFY_MODE'] || DEFAULT_MODE
+      raise OptionParser::InvalidArgument, "mode must be one of: #{MODES.join(', ')}" unless MODES.include?(options.mode)
       options
     end
   end

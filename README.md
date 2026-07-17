@@ -33,13 +33,14 @@ This mode uses Codex Hooks instead of transcript tailing.
 - One Slack thread per Codex `session_id`
 - The first `UserPromptSubmit` becomes the Slack thread root
 - Later `UserPromptSubmit` events in the same session are posted as replies in that thread
-- `SessionStart` is accepted but does not post a Slack message
+- `SessionStart` does not post in normal mode and creates a diagnostic session root in debug mode
 - `SessionStart.source = startup` and `SessionStart.source = clear` reset the saved Slack thread for that session
 - `SessionStart.source = resume` keeps using the existing Slack thread
-- `PreToolUse` and `PostToolUse` can post Bash tool activity
+- `PermissionRequest` posts when Codex is waiting for approval
+- `PreToolUse` and `PostToolUse` post Bash tool activity only in debug mode
 - `Stop` posts `last_assistant_message` for the completed turn
 
-This keeps all prompts and replies for the same Codex session in one Slack thread and does not require tailing a session log. It also avoids a separate "hook started" root message.
+This keeps all prompts and replies for the same Codex session in one Slack thread and does not require tailing a session log. Normal mode also avoids a separate "hook started" root message.
 
 ## How It Works
 
@@ -70,7 +71,8 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
 - Hook mode:
   - one Slack thread per Codex session
   - the first user prompt becomes the thread root
-  - prompt replies, Bash tool activity, and final assistant messages posted from hook events
+  - user prompts, approval requests, and final assistant messages posted from hook events
+  - session starts and Bash tool activity posted only in debug mode
   - local state file used to remember Slack thread timestamps across hook invocations
   - a user prompt containing only `---` resets the current session thread without posting to Slack
   - if a saved Slack thread timestamp becomes stale, the hook clears it, recreates the session thread, and retries the current event once
@@ -115,6 +117,7 @@ SLACK_CHANNEL=C0123456789
 CODEX_NOTIFY_USER_NAME=user
 CODEX_PROMPT=
 CODEX_NOTIFY_TITLE=
+CODEX_NOTIFY_MODE=normal
 ```
 
 Variables:
@@ -124,6 +127,7 @@ Variables:
 - `CODEX_NOTIFY_USER_NAME`: Label used for user messages in Slack, default is the local system user
 - `CODEX_PROMPT`: Optional initial prompt to post as a user message when monitoring begins
 - `CODEX_NOTIFY_TITLE`: Optional title used for the root Slack message or hook session thread
+- `CODEX_NOTIFY_MODE`: Hook notification mode, `normal` (default) or `debug`
 
 CLI flags override environment variables.
 
@@ -285,6 +289,16 @@ Example hook config:
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/codex-notify/bin/codex-notify-hook --event PermissionRequest"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -310,12 +324,14 @@ Useful options:
 - `--title "Codex session: my-project"`: override the Slack thread title
 - `--user-name "koichiro"`: override the user label
 - `--state-file ~/.codex-notify-hook/state.json`: change where session thread mappings are stored
+- `--mode normal|debug`: choose normal notifications or detailed debug notifications
 - `--env-file .env.local`: load a different env file
 
 Notes:
 
 - Hook config uses matcher groups. Each event contains an array of groups, and each group contains a `hooks` array of handlers.
-- `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` are the event names.
+- `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, and `Stop` are the event names.
+- Normal mode posts user prompts, approval requests, and final assistant messages. Debug mode additionally posts session starts and tool activity.
 - Current Codex releases require non-managed command hooks to be reviewed and trusted. In Codex CLI, use `/hooks` to inspect and trust a new or changed hook definition. Until it is trusted, Codex skips it.
 - Current hook payloads provide Bash commands under `tool_input.command` and completed tool results under `tool_response`. Legacy payload shapes remain supported by `codex-notify-hook`.
 - In hook mode, a prompt containing only `---` clears the saved Slack thread for that Codex session. The next user prompt starts a new Slack thread.

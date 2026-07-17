@@ -87,6 +87,30 @@ class CodexNotifyHookConfigTest < Minitest::Test
     end
   end
 
+  def test_parse_args_defaults_to_normal_mode
+    ENV.delete('CODEX_NOTIFY_MODE')
+
+    assert_equal 'normal', HookConfig.parse_args([]).mode
+  end
+
+  def test_parse_args_uses_mode_from_environment
+    ENV['CODEX_NOTIFY_MODE'] = 'debug'
+
+    assert_equal 'debug', HookConfig.parse_args([]).mode
+  end
+
+  def test_parse_args_prefers_cli_mode_over_environment
+    ENV['CODEX_NOTIFY_MODE'] = 'normal'
+
+    assert_equal 'debug', HookConfig.parse_args(['--mode', 'debug']).mode
+  end
+
+  def test_parse_args_rejects_invalid_environment_mode
+    ENV['CODEX_NOTIFY_MODE'] = 'verbose'
+
+    assert_raises(OptionParser::InvalidArgument) { HookConfig.parse_args([]) }
+  end
+
   private
 
   def with_tmpdir
