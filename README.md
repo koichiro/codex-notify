@@ -1,7 +1,7 @@
 # codex-notify
 
 [![CI](https://github.com/koichiro/codex-notify/actions/workflows/ci.yml/badge.svg)](https://github.com/koichiro/codex-notify/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-80%25-brightgreen)](#development)
+[![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)](#development)
 [![Ruby](https://img.shields.io/badge/ruby-3.4%2B-red)](#development)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
 
@@ -419,6 +419,6 @@ rake
 
 `Rakefile` also loads `bundler/setup`, so `rake` can be run without `bundle exec` after `bundle install`.
 
-The test suite uses `minitest`, runs through `rake`, and enforces 80% line coverage for files under `lib/`.
+The test suite uses `minitest`, runs through `rake`, and enforces 90% line coverage for files under `lib/`.
 
 Ruby 3.4 or newer is supported. CI covers the minimum supported 3.4 series and the 4.0 series used by the project's `.ruby-version`.
