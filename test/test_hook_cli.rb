@@ -149,6 +149,7 @@ class CodexNotifyHookCLITest < Minitest::Test
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
       ENV['SLACK_CHANNEL'] = 'C123'
 
+      state_file = dir.join('state.json')
       payload = {
         'session_id' => 'session-123',
         'cwd' => '/tmp/app',
@@ -166,7 +167,7 @@ class CodexNotifyHookCLITest < Minitest::Test
 
       begin
         HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'UserPromptSubmit'],
+          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
           stdin: StringIO.new(JSON.generate(payload)),
           stderr: StringIO.new,
           stdout: StringIO.new
@@ -178,6 +179,49 @@ class CodexNotifyHookCLITest < Minitest::Test
       end
 
       assert_empty posts
+      assert JSON.parse(state_file.read).dig('suppressed_sessions', 'session-123')
+    end
+  end
+
+  def test_normal_mode_clears_existing_thread_when_internal_ambient_policy_prompt_is_suppressed
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      state_file = dir.join('state.json')
+      state_file.write(JSON.generate({ 'threads' => { 'session-123' => '1000.01' } }))
+      payload = {
+        'session_id' => 'session-123',
+        'cwd' => '/tmp/app',
+        'prompt' => internal_ambient_policy_prompt
+      }
+
+      posts = []
+      original_new = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
+        end
+      end
+
+      begin
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new(JSON.generate(payload)),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_new)
+        end
+      end
+
+      state = JSON.parse(state_file.read)
+      assert_empty posts
+      assert_nil state.dig('threads', 'session-123')
+      assert state.dig('suppressed_sessions', 'session-123')
     end
   end
 
@@ -260,6 +304,85 @@ class CodexNotifyHookCLITest < Minitest::Test
       assert_equal 2, posts.size
       assert_includes posts.last.first, 'done'
       assert_equal '1000.01', posts.last.last
+    end
+  end
+
+  def test_stop_skips_suppressed_internal_ambient_session
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      state_file = dir.join('state.json')
+      state_file.write(JSON.generate({
+                                       'threads' => { 'session-123' => '1000.01' },
+                                       'suppressed_sessions' => {
+                                         'session-123' => { 'reason' => 'internal_ambient_suggestions' }
+                                       }
+                                     }))
+      stop_payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'last_assistant_message' => 'done' }
+
+      posts = []
+      original_new = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
+        end
+      end
+
+      begin
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'Stop'],
+          stdin: StringIO.new(JSON.generate(stop_payload)),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_new)
+        end
+      end
+
+      assert_empty posts
+    end
+  end
+
+  def test_stop_skips_internal_ambient_response_signature_in_existing_thread
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      state_file = dir.join('state.json')
+      state_file.write(JSON.generate({ 'threads' => { 'session-123' => '1000.01' } }))
+      stop_payload = {
+        'session_id' => 'session-123',
+        'cwd' => '/tmp/app',
+        'last_assistant_message' => internal_ambient_policy_response
+      }
+
+      posts = []
+      original_new = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
+        end
+      end
+
+      begin
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'Stop'],
+          stdin: StringIO.new(JSON.generate(stop_payload)),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_new)
+        end
+      end
+
+      assert_empty posts
     end
   end
 
@@ -679,5 +802,15 @@ class CodexNotifyHookCLITest < Minitest::Test
       ### A - Abuse (non-hate)
       - Scope: Content including abuse toward non-protected targets; if target is a protected class, use H instead.
     PROMPT
+  end
+
+  def internal_ambient_policy_response
+    <<~RESPONSE
+      - `exclude`: a list of objects describing suggestions to exclude. Each object must have:
+        - `id`: the suggestion_id to exclude
+        - `reason`: a short sentence explaining why the suggestion should be excluded, referencing the applicable policy
+
+      You must not output any other text. Only output the JSON object.
+    RESPONSE
   end
 end
