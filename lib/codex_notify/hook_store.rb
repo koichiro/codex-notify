@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'digest'
 require 'json'
 require 'pathname'
 require 'time'
@@ -48,6 +49,14 @@ module CodexNotify
       end
     end
 
+    # Keep each hook event for a session atomic, including any Slack calls made
+    # between reading and updating the state file. Callers must acquire this
+    # session lock before an operation that takes the state lock.
+    def with_session_lock(session_id)
+      digest = Digest::SHA256.hexdigest(session_id.to_s)
+      with_file_lock(session_lock_dir.join("#{digest}.lock")) { yield }
+    end
+
     private
 
     def state
@@ -71,9 +80,32 @@ module CodexNotify
     end
 
     def update_state
-      data = state
-      yield(data)
-      write_state(data)
+      with_file_lock(state_lock_path) do
+        data = state
+        yield(data)
+        write_state(data)
+      end
+    end
+
+    def state_lock_path
+      @path.dirname.join("#{@path.basename}.lock")
+    end
+
+    def session_lock_dir
+      @path.dirname.join("#{@path.basename}.locks")
+    end
+
+    def with_file_lock(path)
+      path.dirname.mkpath
+      File.open(path, File::RDWR | File::CREAT, 0o600) do |file|
+        locked = false
+        raise IOError, "could not lock #{path}" unless file.flock(File::LOCK_EX)
+
+        locked = true
+        yield
+      ensure
+        file.flock(File::LOCK_UN) if locked
+      end
     end
 
     def write_state(data)

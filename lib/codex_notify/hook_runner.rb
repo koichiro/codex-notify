@@ -56,20 +56,23 @@ module CodexNotify
 
     def run(event_name:, payload:)
       normalized_event = normalize_event_name(event_name || payload['hook_event_name'] || payload['event'])
+      session_id = session_id_from(payload) || '__default__'
 
-      case normalized_event
-      when 'SessionStart'
-        handle_session_start(payload)
-      when 'UserPromptSubmit'
-        handle_user_prompt_submit(payload)
-      when 'PreToolUse'
-        handle_pre_tool_use(payload)
-      when 'PostToolUse'
-        handle_post_tool_use(payload)
-      when 'PermissionRequest'
-        handle_permission_request(payload)
-      when 'Stop'
-        handle_stop(payload)
+      @store.with_session_lock(session_id) do
+        case normalized_event
+        when 'SessionStart'
+          handle_session_start(payload)
+        when 'UserPromptSubmit'
+          handle_user_prompt_submit(payload)
+        when 'PreToolUse'
+          handle_pre_tool_use(payload)
+        when 'PostToolUse'
+          handle_post_tool_use(payload)
+        when 'PermissionRequest'
+          handle_permission_request(payload)
+        when 'Stop'
+          handle_stop(payload)
+        end
       end
 
       0
