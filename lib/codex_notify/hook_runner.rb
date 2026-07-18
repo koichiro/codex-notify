@@ -23,6 +23,18 @@ module CodexNotify
         '## 1. Policies to always exclude'
       ].freeze
     ].freeze
+    INTERNAL_AMBIENT_SUGGESTIONS_RESPONSES = [
+      [
+        'exclude',
+        'suggestion_id',
+        'Only output the JSON object'
+      ].freeze,
+      [
+        'suggestions to exclude',
+        'reason',
+        'applicable policy'
+      ].freeze
+    ].freeze
 
     EVENT_ALIASES = {
       'userpromptsubmit' => 'UserPromptSubmit',
@@ -131,16 +143,25 @@ module CodexNotify
 
     def handle_session_start(payload)
       session_id = session_id_from(payload) || '__default__'
-      @store.clear_thread(session_id) if reset_thread_on_session_start?(payload)
+      if reset_thread_on_session_start?(payload)
+        @store.clear_thread(session_id)
+        @store.clear_suppressed_session(session_id)
+      end
       ensure_session_thread(payload, root_text: session_root_text(payload)) if debug?
     end
 
     def handle_user_prompt_submit(payload)
       prompt = payload['prompt'] || payload.dig('payload', 'prompt')
       return if prompt.nil? || prompt.to_s.empty?
-      return if normal? && internal_ambient_suggestions_prompt?(prompt)
 
       session_id = session_id_from(payload) || '__default__'
+      if normal? && internal_ambient_suggestions_prompt?(prompt)
+        @store.suppress_session(session_id, 'internal_ambient_suggestions')
+        return
+      end
+
+      @store.clear_suppressed_session(session_id)
+
       if reset_thread_prompt?(prompt)
         @store.clear_thread(session_id)
         return
@@ -181,10 +202,15 @@ module CodexNotify
     end
 
     def handle_stop(payload)
+      session_id = session_id_from(payload) || '__default__'
+      return if normal? && @store.suppressed_session?(session_id)
+
+      message = payload['last_assistant_message'] || payload.dig('payload', 'last_assistant_message')
+      return if normal? && internal_ambient_suggestions_response?(message)
+
       _session_id, thread_ts, = ensure_session_thread(payload)
       return if thread_ts.nil?
 
-      message = payload['last_assistant_message'] || payload.dig('payload', 'last_assistant_message')
       unless message.nil? || message.to_s.empty?
         post_with_thread_recovery(payload, HookFormatter.assistant_text(message), fallback_root_text: session_root_text(payload))
       end
@@ -202,6 +228,15 @@ module CodexNotify
     def internal_ambient_suggestions_prompt?(prompt)
       text = prompt.to_s
       INTERNAL_AMBIENT_SUGGESTIONS_PROMPTS.any? do |markers|
+        markers.all? { |marker| text.include?(marker) }
+      end
+    end
+
+    def internal_ambient_suggestions_response?(message)
+      text = message.to_s
+      return false if text.empty?
+
+      INTERNAL_AMBIENT_SUGGESTIONS_RESPONSES.any? do |markers|
         markers.all? { |marker| text.include?(marker) }
       end
     end
