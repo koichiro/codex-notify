@@ -64,7 +64,7 @@ module CodexNotify
           session_file,
           poll_sec: args.poll_sec,
           once: args.once,
-          start_at_end: true,
+          start_at_end: !args.once,
           sleep_func: method(:sleep)
         ),
         token: args.token,
