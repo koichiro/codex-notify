@@ -3,6 +3,7 @@
 require 'json'
 require 'pathname'
 require_relative 'hook_config'
+require_relative 'hook_input_validator'
 require_relative 'hook_store'
 require_relative 'hook_formatter'
 require_relative 'slack_client'
@@ -36,15 +37,6 @@ module CodexNotify
       ].freeze
     ].freeze
 
-    EVENT_ALIASES = {
-      'userpromptsubmit' => 'UserPromptSubmit',
-      'pretooluse' => 'PreToolUse',
-      'posttooluse' => 'PostToolUse',
-      'permissionrequest' => 'PermissionRequest',
-      'stop' => 'Stop',
-      'sessionstart' => 'SessionStart'
-    }.freeze
-
     def initialize(token:, channel:, user_name:, title:, state_file:, mode: HookConfig::DEFAULT_MODE, stdout: $stdout)
       @client = SlackClient.new(token:, channel:)
       @store = HookStore.new(state_file)
@@ -55,8 +47,7 @@ module CodexNotify
     end
 
     def run(event_name:, payload:)
-      normalized_event = normalize_event_name(event_name || payload['hook_event_name'] || payload['event'])
-      session_id = session_id_from(payload) || '__default__'
+      normalized_event, session_id = HookInputValidator.validate(event_name:, payload:)
 
       @store.with_session_lock(session_id) do
         case normalized_event
@@ -80,18 +71,9 @@ module CodexNotify
 
     private
 
-    def normalize_event_name(name)
-      return nil if name.nil?
-
-      text = name.to_s
-      return text if EVENT_ALIASES.value?(text)
-
-      EVENT_ALIASES[text.downcase.delete('_- ')] || text
-    end
-
     def session_id_from(payload)
       value = payload['session_id'] || payload['sessionId'] || payload.dig('session', 'id')
-      value.to_s unless value.nil? || value.to_s.empty?
+      value.strip
     end
 
     def cwd_from(payload)
@@ -103,14 +85,14 @@ module CodexNotify
     end
 
     def session_root_text(payload)
-      session_id = session_id_from(payload) || '__default__'
+      session_id = session_id_from(payload)
       cwd = cwd_from(payload)
       title = @title || "Codex session: #{File.basename(cwd)}"
       HookFormatter.session_root_text(title:, cwd:, session_id:, user_name: @user_name)
     end
 
     def ensure_session_thread(payload, root_text: nil)
-      session_id = session_id_from(payload) || '__default__'
+      session_id = session_id_from(payload)
       thread_ts = thread_for(session_id)
       return [session_id, thread_ts, false] if thread_ts
 
@@ -129,7 +111,7 @@ module CodexNotify
     end
 
     def post_with_thread_recovery(payload, text, fallback_root_text:)
-      session_id = session_id_from(payload) || '__default__'
+      session_id = session_id_from(payload)
       thread_ts = thread_for(session_id)
       return if thread_ts.nil?
 
@@ -145,7 +127,7 @@ module CodexNotify
     end
 
     def handle_session_start(payload)
-      session_id = session_id_from(payload) || '__default__'
+      session_id = session_id_from(payload)
       if reset_thread_on_session_start?(payload)
         @store.clear_thread(session_id)
         @store.clear_suppressed_session(session_id)
@@ -155,9 +137,7 @@ module CodexNotify
 
     def handle_user_prompt_submit(payload)
       prompt = payload['prompt'] || payload.dig('payload', 'prompt')
-      return if prompt.nil? || prompt.to_s.empty?
-
-      session_id = session_id_from(payload) || '__default__'
+      session_id = session_id_from(payload)
       if normal? && internal_ambient_suggestions_prompt?(prompt)
         @store.suppress_session(session_id, 'internal_ambient_suggestions')
         return
@@ -205,7 +185,7 @@ module CodexNotify
     end
 
     def handle_stop(payload)
-      session_id = session_id_from(payload) || '__default__'
+      session_id = session_id_from(payload)
       return if normal? && @store.suppressed_session?(session_id)
 
       message = payload['last_assistant_message'] || payload.dig('payload', 'last_assistant_message')

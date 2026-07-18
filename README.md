@@ -327,6 +327,43 @@ Useful options:
 - `--mode normal|debug`: choose normal notifications or detailed debug notifications
 - `--env-file .env.local`: load a different env file
 
+### Hook input contract
+
+Hook input must be a non-empty JSON object. The event name may be supplied with
+`--event` or by the payload's `hook_event_name` / `event` field. If more than one
+source supplies an event name, the normalized names must agree. Supported event
+names are `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+`PermissionRequest`, and `Stop`; the existing case-insensitive aliases with
+spaces, `_`, or `-` are also accepted.
+
+Every event must include a non-empty string session ID as `session_id`,
+`sessionId`, or `session.id`. Events without a valid session ID are rejected and
+are never assigned to a shared default Slack thread.
+
+Required event fields:
+
+| Event | Required payload fields |
+| --- | --- |
+| `SessionStart` | non-empty string `source` |
+| `UserPromptSubmit` | non-empty string `prompt` |
+| `PreToolUse` | non-empty string `tool_name` and `tool_input` (legacy `command` is accepted) |
+| `PostToolUse` | non-empty string `tool_name` and `tool_response` (legacy result fields are accepted) |
+| `PermissionRequest` | non-empty string `tool_name` and object `tool_input` |
+| `Stop` | string `last_assistant_message`; an empty string is a valid no-op |
+
+The existing supported nested `payload` paths for prompts, permission requests,
+tool results, and assistant messages remain accepted. Additional fields are
+ignored for forward compatibility.
+
+Hook command exit codes are:
+
+- `0`: the event was handled, including intentional notification suppression
+- `1`: a runtime failure occurred, such as a Slack or state-file error
+- `2`: configuration or Hook input was invalid
+
+Input errors write a concise `ERROR:` line to stderr without including the full
+payload or credentials.
+
 Notes:
 
 - Hook config uses matcher groups. Each event contains an array of groups, and each group contains a `hooks` array of handlers.
