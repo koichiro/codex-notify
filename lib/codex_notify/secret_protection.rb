@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module CodexNotify
-  module Security
+  module SecretProtection
     REDACTED = '[REDACTED]'
     SENSITIVE_NAME = /(?:authorization|proxy[-_]?authorization|token|secret|password|passwd|api[-_]?key)/i
     KNOWN_SECRET_PATTERNS = [

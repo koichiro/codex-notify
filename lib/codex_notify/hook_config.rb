@@ -73,7 +73,7 @@ module CodexNotify
     def parse_args(argv = nil, stderr: $stderr)
       parser, options = build_parser
       parser.parse!(argv || [])
-      Security.warn_deprecated_cli_token(stderr:) if options.token_from_cli
+      SecretProtection.warn_deprecated_cli_token(stderr:) if options.token_from_cli
 
       sources = env_sources(options, stderr:)
       policy = resolve_policy(sources)
@@ -89,7 +89,7 @@ module CodexNotify
       process = EnvSource.new(kind: :process, path: nil, values: ENV.to_h)
       paths = resolve_env_paths(options.env_file)
       file_sources = paths.map do |path|
-        Security.warn_if_env_file_insecure(path, stderr:)
+        SecretProtection.warn_if_env_file_insecure(path, stderr:)
         kind = source_kind(path, explicit: options.env_file_explicit)
         EnvSource.new(kind:, path: path.expand_path, values: Dotenv.parse(path.to_s))
       rescue SystemCallError => e
@@ -159,7 +159,7 @@ module CodexNotify
       end
       return if used.empty? || repository_sources.empty?
 
-      Security.warn_deprecated_repository_credentials(repository_sources.first.path, used, stderr:)
+      SecretProtection.warn_deprecated_repository_credentials(repository_sources.first.path, used, stderr:)
     end
 
     def apply_presentation(options, sources, policy:)
@@ -193,7 +193,7 @@ module CodexNotify
         next if ignored.empty?
 
         reason = policy == 'restricted' ? policy : nil
-        Security.warn_ignored_repository_credentials(source.path, ignored.sort, policy: reason, stderr:)
+        SecretProtection.warn_ignored_repository_credentials(source.path, ignored.sort, policy: reason, stderr:)
       end
     end
 

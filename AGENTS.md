@@ -42,7 +42,7 @@ fixtures, commits, or PR descriptions.
 - Keep log-tail parsing and orchestration in `session_log.rb`,
   `log_event_parser.rb`, and `stream_processor.rb`.
 - Keep Slack HTTP behavior in `slack_client.rb` and shared outbound-message
-  sanitization in `security.rb` and `message_formatter.rb`.
+  sanitization in `secret_protection.rb` and `message_formatter.rb`.
 - Use `CodexNotify` as the namespace and follow the existing Ruby style,
   including `# frozen_string_literal: true`, keyword arguments, and small
   single-purpose methods.
