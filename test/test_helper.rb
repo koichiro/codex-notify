@@ -14,7 +14,7 @@ require 'codex_notify'
 require 'codex_notify/cli'
 
 module CoverageReport
-  THRESHOLD = 80.0
+  THRESHOLD = 90.0
 
   module_function
 
