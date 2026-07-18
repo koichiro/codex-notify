@@ -4,6 +4,7 @@ require 'dotenv'
 require 'etc'
 require 'optparse'
 require 'pathname'
+require_relative 'security'
 
 module CodexNotify
   module Config
@@ -24,6 +25,7 @@ module CodexNotify
       :session_file,
       :poll_sec,
       :once,
+      :token_from_cli,
       keyword_init: true
     )
 
@@ -40,10 +42,11 @@ module CodexNotify
       [Pathname(Dir.pwd).join(env_path), app_root.join(env_path)].select(&:exist?).uniq
     end
 
-    def load_env_file(path = DEFAULT_ENV_PATH, override: false)
+    def load_env_file(path = DEFAULT_ENV_PATH, override: false, stderr: $stderr)
       env_paths = resolve_env_paths(path)
       return if env_paths.empty?
 
+      env_paths.each { |env_path| Security.warn_if_env_file_insecure(env_path, stderr:) }
       loader = override ? Dotenv.method(:overload) : Dotenv.method(:load)
       loader.call(*env_paths.map(&:to_s))
     end
@@ -75,13 +78,17 @@ module CodexNotify
         sessions_dir: DEFAULT_SESSIONS_DIR.to_s,
         session_file: nil,
         poll_sec: 1.0,
-        once: false
+        once: false,
+        token_from_cli: false
       )
 
       parser = OptionParser.new do |opts|
         opts.banner = 'Usage: codex-notify [options]'
         opts.on('--env-file PATH') { |v| options.env_file = v }
-        opts.on('--token TOKEN') { |v| options.token = v }
+        opts.on('--token TOKEN', 'Deprecated: use SLACK_BOT_TOKEN or --env-file') do |v|
+          options.token = v
+          options.token_from_cli = true
+        end
         opts.on('--channel CHANNEL') { |v| options.channel = v }
         opts.on('--user-name NAME') { |v| options.user_name = v }
         opts.on('--prompt PROMPT') { |v| options.prompt = v }
@@ -97,10 +104,11 @@ module CodexNotify
       [parser, options]
     end
 
-    def parse_args(argv = nil)
+    def parse_args(argv = nil, stderr: $stderr)
       parser, options = build_parser
       parser.parse!(argv || [])
-      load_env_file(options.env_file)
+      Security.warn_deprecated_cli_token(stderr:) if options.token_from_cli
+      load_env_file(options.env_file, stderr:)
       options.token ||= ENV['SLACK_BOT_TOKEN']
       options.channel ||= ENV['SLACK_CHANNEL']
       options.user_name ||= ENV['CODEX_NOTIFY_USER_NAME'] || system_user_name

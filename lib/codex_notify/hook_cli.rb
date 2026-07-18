@@ -13,7 +13,7 @@ module CodexNotify
     module_function
 
     def main(argv = nil, stdin: $stdin, stderr: $stderr, stdout: $stdout)
-      args = HookConfig.parse_args(argv)
+      args = HookConfig.parse_args(argv, stderr:)
 
       unless args.token && args.channel
         stderr.puts('ERROR: need --token/--channel or env SLACK_BOT_TOKEN / SLACK_CHANNEL')

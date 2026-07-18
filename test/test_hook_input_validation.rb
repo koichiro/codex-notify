@@ -241,14 +241,17 @@ class CodexNotifyHookInputValidationTest < Minitest::Test
   private
 
   def invoke(raw, dir:, event: nil, stderr: StringIO.new)
+    previous_token = ENV['SLACK_BOT_TOKEN']
+    ENV['SLACK_BOT_TOKEN'] = 'xoxb-test-token'
     argv = [
       '--env-file', 'missing.env',
-      '--token', 'xoxb-test-token',
       '--channel', 'C123',
       '--state-file', dir.join('state.json').to_s
     ]
     argv.concat(['--event', event]) if event
     HookCLI.main(argv, stdin: StringIO.new(raw), stderr:, stdout: StringIO.new)
+  ensure
+    previous_token.nil? ? ENV.delete('SLACK_BOT_TOKEN') : ENV['SLACK_BOT_TOKEN'] = previous_token
   end
 
   def assert_no_hook_side_effects(dir)
