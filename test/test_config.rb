@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'tmpdir'
+require 'stringio'
 require_relative 'test_helper'
 
 class CodexNotifyConfigTest < Minitest::Test
@@ -24,6 +25,7 @@ class CodexNotifyConfigTest < Minitest::Test
     with_tmpdir do |dir|
       env_file = dir.join('.env')
       env_file.write("SLACK_BOT_TOKEN=xoxb-test\nSLACK_CHANNEL=C123\n")
+      env_file.chmod(0o600)
       ENV.delete('SLACK_BOT_TOKEN')
       ENV.delete('SLACK_CHANNEL')
 
@@ -38,6 +40,7 @@ class CodexNotifyConfigTest < Minitest::Test
     with_tmpdir do |dir|
       env_file = dir.join('.env')
       env_file.write("SLACK_BOT_TOKEN=xoxb-test\n")
+      env_file.chmod(0o600)
       ENV['SLACK_BOT_TOKEN'] = 'existing'
 
       Config.load_env_file(env_file.to_s)
@@ -50,6 +53,7 @@ class CodexNotifyConfigTest < Minitest::Test
     with_tmpdir do |dir|
       env_file = dir.join('.env')
       env_file.write("SLACK_BOT_TOKEN=xoxb-from-env\nSLACK_CHANNEL=CENV\nCODEX_NOTIFY_USER_NAME=alice\n")
+      env_file.chmod(0o600)
       ENV.delete('SLACK_BOT_TOKEN')
       ENV.delete('SLACK_CHANNEL')
       ENV.delete('CODEX_NOTIFY_USER_NAME')
@@ -66,6 +70,7 @@ class CodexNotifyConfigTest < Minitest::Test
     with_tmpdir do |dir|
       env_file = dir.join('.env')
       env_file.write("SLACK_BOT_TOKEN=xoxb-app-root\nSLACK_CHANNEL=CROOT\n")
+      env_file.chmod(0o600)
       ENV.delete('SLACK_BOT_TOKEN')
       ENV.delete('SLACK_CHANNEL')
 
@@ -92,12 +97,14 @@ class CodexNotifyConfigTest < Minitest::Test
   def test_load_env_file_merges_cwd_and_app_root_relative_paths
     with_tmpdir do |app_root|
       app_root.join('.env').write("SLACK_BOT_TOKEN=xoxb-app-root\nSLACK_CHANNEL=CROOT\n")
+      app_root.join('.env').chmod(0o600)
       ENV.delete('SLACK_BOT_TOKEN')
       ENV.delete('SLACK_CHANNEL')
 
       original = Config.method(:app_root)
       Dir.mktmpdir do |cwd|
         Pathname(cwd).join('.env').write("CODEX_NOTIFY_USER_NAME=cwd-user\n")
+        Pathname(cwd).join('.env').chmod(0o600)
 
         Dir.chdir(cwd) do
           with_silenced_warnings do
@@ -120,9 +127,33 @@ class CodexNotifyConfigTest < Minitest::Test
   def test_parse_args_prefers_cli_user_name_over_env
     ENV['CODEX_NOTIFY_USER_NAME'] = 'env-user'
 
-    args = Config.parse_args(['--user-name', 'cli-user'])
+    args = Config.parse_args(['--env-file', 'missing.env', '--user-name', 'cli-user'])
 
     assert_equal 'cli-user', args.user_name
+  end
+
+  def test_parse_args_warns_when_cli_token_is_used
+    stderr = StringIO.new
+
+    args = Config.parse_args(['--env-file', 'missing.env', '--token', 'xoxb-cli'], stderr:)
+
+    assert_equal 'xoxb-cli', args.token
+    assert_includes stderr.string, '--token is deprecated'
+    assert_includes stderr.string, 'process lists and shell history'
+  end
+
+  def test_parse_args_warns_when_env_file_permissions_are_insecure
+    with_tmpdir do |dir|
+      env_file = dir.join('.env')
+      env_file.write("SLACK_BOT_TOKEN=xoxb-from-env\n")
+      env_file.chmod(0o644)
+      stderr = StringIO.new
+
+      Config.parse_args(['--env-file', env_file.to_s], stderr:)
+
+      assert_includes stderr.string, 'permissions 0644'
+      assert_includes stderr.string, 'chmod 600'
+    end
   end
 
   def test_parse_args_uses_system_user_name_when_no_override_is_present
@@ -133,7 +164,7 @@ class CodexNotifyConfigTest < Minitest::Test
       Config.singleton_class.send(:define_method, :system_user_name) { 'local-user' }
     end
     begin
-      args = Config.parse_args([])
+      args = Config.parse_args(['--env-file', 'missing.env'])
       assert_equal 'local-user', args.user_name
     ensure
       with_silenced_warnings do

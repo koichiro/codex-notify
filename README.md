@@ -110,7 +110,12 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
 
 ## Configuration
 
-Create `.env` from `.env.sample`.
+Create `.env` from `.env.sample`, then restrict it to the current user because it contains the Slack bot token.
+
+```bash
+cp .env.sample .env
+chmod 600 .env
+```
 
 ```env
 SLACK_BOT_TOKEN=xoxb-your-token
@@ -130,7 +135,7 @@ Variables:
 - `CODEX_NOTIFY_TITLE`: Optional title used for the root Slack message or hook session thread
 - `CODEX_NOTIFY_MODE`: Hook notification mode, `normal` (default) or `debug`
 
-CLI flags override environment variables.
+CLI flags override environment variables. Passing the token with `--token` is deprecated because command-line arguments can be exposed in process listings and shell history. Use `SLACK_BOT_TOKEN` from the environment or a permission-restricted env file instead. On systems with Unix permissions, codex-notify warns when a loaded env file is readable by group or other users.
 
 When `--env-file` is omitted, `codex-notify` first looks for `.env` in the current working directory and then falls back to the tool's own project root. This helps hook mode when the executable is launched from another repository.
 
@@ -183,11 +188,10 @@ Process the current contents once and exit:
 
 In normal follow mode, `codex-notify` starts from the end of the session log and only posts prompts and responses appended after the monitor starts.
 
-With explicit flags:
+With explicit non-secret flags:
 
 ```bash
 ./bin/codex-notify \
-  --token "$SLACK_BOT_TOKEN" \
   --channel "$SLACK_CHANNEL" \
   --user-name "koichiro" \
   --title "Codex run: my-project" \
@@ -327,6 +331,25 @@ Useful options:
 - `--state-file ~/.codex-notify-hook/state.json`: change where session thread mappings are stored
 - `--mode normal|debug`: choose normal notifications or detailed debug notifications
 - `--env-file .env.local`: load a different env file
+
+`--token` remains available for compatibility but is deprecated. Prefer `SLACK_BOT_TOKEN` in a `0600` env file.
+
+### Hook data and destination
+
+The configured `SLACK_BOT_TOKEN` determines the Slack workspace, and `SLACK_CHANNEL` determines the destination channel. Hook definitions are the allowlist: configure only the event types you intend to send. `codex-notify-hook` accepts only the following supported events and rejects other event names.
+
+| Hook event | Mode | Data sent to Slack |
+| --- | --- | --- |
+| `SessionStart` | debug only | working directory, user label, and session ID |
+| `UserPromptSubmit` | normal and debug | user prompt |
+| `PreToolUse` | debug only | Bash command/tool input |
+| `PostToolUse` | debug only | exit code, command output, and stderr |
+| `PermissionRequest` | normal and debug | tool name and approval description |
+| `Stop` | normal and debug | final assistant message |
+
+> **Security warning:** debug mode sends commands and their output to Slack. These values can contain credentials, environment variables, file contents, or other sensitive data. Enable debug mode only for channels and sessions where that disclosure is acceptable. Omit `PreToolUse` and `PostToolUse` from the Hook configuration when tool activity should never be sent.
+
+Before each Slack API request, codex-notify applies best-effort redaction to both log-tail and Hook messages. It masks common secret-bearing keys (such as token, password, secret, API key, and Authorization), explicit secret CLI flags, and several well-known token formats. Redaction cannot recognize every arbitrary or encoded secret, so it is an additional safeguard rather than a substitute for limiting Hook types, avoiding sensitive debug sessions, and restricting the Slack destination.
 
 ### Hook input contract
 

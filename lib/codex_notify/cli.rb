@@ -9,6 +9,7 @@ require 'uri'
 require_relative 'config'
 require_relative 'log_event_parser'
 require_relative 'message_formatter'
+require_relative 'security'
 require_relative 'session_log'
 require_relative 'stream_processor'
 
@@ -19,7 +20,7 @@ module CodexNotify
     module_function
 
     def slack_post(token, channel, text, thread_ts = nil)
-      payload = { channel:, text: }
+      payload = { channel:, text: Security.redact(text) }
       payload[:thread_ts] = thread_ts.to_s if thread_ts
 
       uri = URI(SLACK_API)
@@ -38,7 +39,7 @@ module CodexNotify
     end
 
     def main(argv = nil, stdin: nil, stderr: $stderr)
-      args = CodexNotify::Config.parse_args(argv)
+      args = CodexNotify::Config.parse_args(argv, stderr:)
       unless args.token && args.channel
         stderr.puts('ERROR: need --token/--channel or env SLACK_BOT_TOKEN / SLACK_CHANNEL')
         return 2

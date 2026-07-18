@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'tmpdir'
+require 'stringio'
 require_relative 'test_helper'
 
 class CodexNotifyHookConfigTest < Minitest::Test
@@ -18,6 +19,7 @@ class CodexNotifyHookConfigTest < Minitest::Test
     with_tmpdir do |dir|
       env_file = dir.join('.env')
       env_file.write("SLACK_BOT_TOKEN=xoxb-hook\nSLACK_CHANNEL=CHOOK\nCODEX_NOTIFY_USER_NAME=hook-user\n")
+      env_file.chmod(0o600)
       ENV.delete('SLACK_BOT_TOKEN')
       ENV.delete('SLACK_CHANNEL')
       ENV.delete('CODEX_NOTIFY_USER_NAME')
@@ -45,6 +47,7 @@ class CodexNotifyHookConfigTest < Minitest::Test
   def test_parse_args_merges_cwd_and_app_root_relative_paths
     with_tmpdir do |app_root|
       app_root.join('.env').write("SLACK_BOT_TOKEN=xoxb-hook\nSLACK_CHANNEL=CHOOK\n")
+      app_root.join('.env').chmod(0o600)
       ENV.delete('SLACK_BOT_TOKEN')
       ENV.delete('SLACK_CHANNEL')
       ENV.delete('CODEX_NOTIFY_USER_NAME')
@@ -52,6 +55,7 @@ class CodexNotifyHookConfigTest < Minitest::Test
       original = HookConfig.method(:app_root)
       Dir.mktmpdir do |cwd|
         Pathname(cwd).join('.env').write("CODEX_NOTIFY_USER_NAME=cwd-user\n")
+        Pathname(cwd).join('.env').chmod(0o600)
 
         Dir.chdir(cwd) do
           with_silenced_warnings do
@@ -90,25 +94,34 @@ class CodexNotifyHookConfigTest < Minitest::Test
   def test_parse_args_defaults_to_normal_mode
     ENV.delete('CODEX_NOTIFY_MODE')
 
-    assert_equal 'normal', HookConfig.parse_args([]).mode
+    assert_equal 'normal', HookConfig.parse_args(['--env-file', 'missing.env']).mode
   end
 
   def test_parse_args_uses_mode_from_environment
     ENV['CODEX_NOTIFY_MODE'] = 'debug'
 
-    assert_equal 'debug', HookConfig.parse_args([]).mode
+    assert_equal 'debug', HookConfig.parse_args(['--env-file', 'missing.env']).mode
   end
 
   def test_parse_args_prefers_cli_mode_over_environment
     ENV['CODEX_NOTIFY_MODE'] = 'normal'
 
-    assert_equal 'debug', HookConfig.parse_args(['--mode', 'debug']).mode
+    assert_equal 'debug', HookConfig.parse_args(['--env-file', 'missing.env', '--mode', 'debug']).mode
   end
 
   def test_parse_args_rejects_invalid_environment_mode
     ENV['CODEX_NOTIFY_MODE'] = 'verbose'
 
-    assert_raises(OptionParser::InvalidArgument) { HookConfig.parse_args([]) }
+    assert_raises(OptionParser::InvalidArgument) { HookConfig.parse_args(['--env-file', 'missing.env']) }
+  end
+
+  def test_parse_args_warns_when_cli_token_is_used
+    stderr = StringIO.new
+
+    args = HookConfig.parse_args(['--env-file', 'missing.env', '--token', 'xoxb-cli'], stderr:)
+
+    assert_equal 'xoxb-cli', args.token
+    assert_includes stderr.string, '--token is deprecated'
   end
 
   private

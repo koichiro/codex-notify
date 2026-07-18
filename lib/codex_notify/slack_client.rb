@@ -3,6 +3,7 @@
 require 'json'
 require 'net/http'
 require 'uri'
+require_relative 'security'
 
 module CodexNotify
   class SlackClient
@@ -24,7 +25,7 @@ module CodexNotify
     end
 
     def post(text, thread_ts: nil)
-      payload = { channel: @channel, text: text }
+      payload = { channel: @channel, text: Security.redact(text) }
       payload[:thread_ts] = thread_ts.to_s if thread_ts
 
       uri = URI(SLACK_API)
