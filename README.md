@@ -56,7 +56,7 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
 ### Hook Mode
 
 1. Codex invokes `bin/codex-notify-hook` for configured hook events.
-2. The hook command reads the JSON payload from standard input.
+2. The hook command reads up to 1 MiB of JSON payload from standard input.
 3. The first `UserPromptSubmit` creates the per-session Slack thread and stores its thread timestamp.
 4. Later hook events for the same `session_id` are posted into the same thread.
 
@@ -71,6 +71,7 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
 - Hook mode:
   - one Slack thread per Codex session
   - the first user prompt becomes the thread root
+  - long root events use their first chunk as the root and post the remaining chunks as replies
   - user prompts, approval requests, and final assistant messages posted from hook events
   - session starts and Bash tool activity posted only in debug mode
   - local state file used to remember Slack thread timestamps across hook invocations
@@ -335,6 +336,10 @@ source supplies an event name, the normalized names must agree. Supported event
 names are `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
 `PermissionRequest`, and `Stop`; the existing case-insensitive aliases with
 spaces, `_`, or `-` are also accepted.
+
+Hook input is limited to 1 MiB (1,048,576 bytes). Larger input is rejected before
+JSON parsing, Slack posting, or state updates, with exit code `2`. The limit is
+measured in bytes, including JSON syntax and multibyte string content.
 
 Every event must include a non-empty string session ID as `session_id`,
 `sessionId`, or `session.id`. Events without a valid session ID are rejected and

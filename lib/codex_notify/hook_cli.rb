@@ -8,6 +8,8 @@ require_relative 'message_formatter'
 
 module CodexNotify
   module HookCLI
+    MAX_STDIN_BYTES = 1_048_576
+
     module_function
 
     def main(argv = nil, stdin: $stdin, stderr: $stderr, stdout: $stdout)
@@ -41,7 +43,10 @@ module CodexNotify
     end
 
     def parse_stdin(stdin)
-      raw = stdin.read.to_s
+      raw = stdin.read(MAX_STDIN_BYTES + 1).to_s
+      if raw.bytesize > MAX_STDIN_BYTES
+        raise HookInputError, "hook stdin exceeds maximum size of #{MAX_STDIN_BYTES} bytes"
+      end
       raise HookInputError, 'hook stdin is empty' if raw.strip.empty?
 
       payload = JSON.parse(raw)

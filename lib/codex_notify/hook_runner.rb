@@ -6,6 +6,7 @@ require_relative 'hook_config'
 require_relative 'hook_input_validator'
 require_relative 'hook_store'
 require_relative 'hook_formatter'
+require_relative 'message_formatter'
 require_relative 'slack_client'
 
 module CodexNotify
@@ -98,9 +99,11 @@ module CodexNotify
 
       return [session_id, nil, false] if root_text.nil? || root_text.to_s.empty?
 
-      response = @client.post(root_text)
+      parts = MessageFormatter.chunk_text(root_text).to_a
+      response = @client.post(parts.shift)
       thread_ts = response.fetch('ts').to_s
       @store.save_thread_ts(session_id, thread_ts)
+      post_parts(parts, thread_ts:)
       [session_id, thread_ts, true]
     end
 
@@ -115,15 +118,20 @@ module CodexNotify
       thread_ts = thread_for(session_id)
       return if thread_ts.nil?
 
-      @client.post(text, thread_ts: thread_ts)
+      post_parts(MessageFormatter.chunk_text(text), thread_ts:)
     rescue SlackClient::Error => e
       raise unless stale_thread_error?(e)
 
       @store.clear_thread(session_id)
       _session_id, recovered_thread_ts, = ensure_session_thread(payload, root_text: fallback_root_text)
       return if recovered_thread_ts.nil?
+      return if fallback_root_text == text
 
-      @client.post(text, thread_ts: recovered_thread_ts)
+      post_parts(MessageFormatter.chunk_text(text), thread_ts: recovered_thread_ts)
+    end
+
+    def post_parts(parts, thread_ts:)
+      parts.each { |part| @client.post(part, thread_ts:) }
     end
 
     def handle_session_start(payload)
