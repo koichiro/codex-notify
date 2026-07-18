@@ -66,6 +66,30 @@ class CodexNotifyConfigTest < Minitest::Test
     end
   end
 
+  def test_parse_args_uses_prompt_and_title_from_environment
+    ENV['CODEX_PROMPT'] = 'Investigate failing tests'
+    ENV['CODEX_NOTIFY_TITLE'] = 'Codex run: tests'
+
+    args = Config.parse_args(['--env-file', 'missing.env'])
+
+    assert_equal 'Investigate failing tests', args.prompt
+    assert_equal 'Codex run: tests', args.title
+  end
+
+  def test_parse_args_prefers_cli_prompt_and_title_over_environment
+    ENV['CODEX_PROMPT'] = 'environment prompt'
+    ENV['CODEX_NOTIFY_TITLE'] = 'environment title'
+
+    args = Config.parse_args([
+                               '--env-file', 'missing.env',
+                               '--prompt', 'CLI prompt',
+                               '--title', 'CLI title'
+                             ])
+
+    assert_equal 'CLI prompt', args.prompt
+    assert_equal 'CLI title', args.title
+  end
+
   def test_load_env_file_falls_back_to_app_root_for_relative_path
     with_tmpdir do |dir|
       env_file = dir.join('.env')
