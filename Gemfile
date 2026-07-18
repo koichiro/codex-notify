@@ -1,6 +1,6 @@
 source 'https://rubygems.org'
 
-ruby '>= 3.1.0'
+ruby '>= 3.4.0'
 
 gem 'rake'
 gem 'minitest'

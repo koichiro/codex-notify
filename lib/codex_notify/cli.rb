@@ -1,41 +1,21 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require 'json'
-require 'net/http'
 require 'pathname'
 require 'time'
-require 'uri'
 require_relative 'config'
 require_relative 'log_event_parser'
 require_relative 'message_formatter'
-require_relative 'security'
 require_relative 'session_log'
+require_relative 'slack_client'
 require_relative 'stream_processor'
 
 module CodexNotify
   module CLI
-    SLACK_API = 'https://slack.com/api/chat.postMessage'
-
     module_function
 
     def slack_post(token, channel, text, thread_ts = nil)
-      payload = { channel:, text: Security.redact(text) }
-      payload[:thread_ts] = thread_ts.to_s if thread_ts
-
-      uri = URI(SLACK_API)
-      request = Net::HTTP::Post.new(uri)
-      request['Content-Type'] = 'application/json; charset=utf-8'
-      request['Authorization'] = "Bearer #{token}"
-      request.body = JSON.generate(payload)
-
-      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, read_timeout: 20) do |http|
-        http.request(request)
-      end
-      parsed = JSON.parse(response.body)
-      raise "Slack API error: #{parsed}" unless parsed['ok']
-
-      parsed
+      SlackClient.new(token:, channel:).post(text, thread_ts:)
     end
 
     def main(argv = nil, stdin: nil, stderr: $stderr)
@@ -71,6 +51,7 @@ module CodexNotify
         token: args.token,
         channel: args.channel,
         root_text:,
+        initial_prompt: args.prompt,
         user_name: args.user_name,
         include_tools: args.include_tools,
         throttle_sec: args.throttle_sec,

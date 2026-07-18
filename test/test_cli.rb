@@ -123,6 +123,39 @@ class CodexNotifyCLITest < Minitest::Test
     end
   end
 
+  def test_main_passes_initial_prompt_to_log_processor
+    with_tmpdir do |dir|
+      session_file = dir.join('rollout.jsonl')
+      session_file.write("{\"type\":\"session_meta\",\"payload\":{\"id\":\"session-123\"}}\n")
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+      received_prompt = nil
+
+      original_process_stream = CodexNotify::StreamProcessor.method(:process_codex_log_stream)
+      with_silenced_warnings do
+        CodexNotify::StreamProcessor.singleton_class.send(:define_method, :process_codex_log_stream) do |*, **options|
+          received_prompt = options[:initial_prompt]
+          0
+        end
+      end
+
+      begin
+        CLI.main([
+                   '--env-file', 'missing.env',
+                   '--session-file', session_file.to_s,
+                   '--prompt', 'Investigate failing tests',
+                   '--once'
+                 ], stderr: StringIO.new)
+      ensure
+        with_silenced_warnings do
+          CodexNotify::StreamProcessor.singleton_class.send(:define_method, :process_codex_log_stream, original_process_stream)
+        end
+      end
+
+      assert_equal 'Investigate failing tests', received_prompt
+    end
+  end
+
   private
 
   def with_tmpdir

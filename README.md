@@ -97,6 +97,7 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
 ├── lib/
 │   └── codex_notify/
 │       ├── cli.rb
+│       ├── config_support.rb
 │       ├── hook_cli.rb
 │       ├── hook_config.rb
 │       ├── hook_formatter.rb
@@ -419,3 +420,5 @@ rake
 `Rakefile` also loads `bundler/setup`, so `rake` can be run without `bundle exec` after `bundle install`.
 
 The test suite uses `minitest`, runs through `rake`, and enforces 80% line coverage for files under `lib/`.
+
+Ruby 3.4 or newer is supported. CI covers the minimum supported 3.4 series and the 4.0 series used by the project's `.ruby-version`.
