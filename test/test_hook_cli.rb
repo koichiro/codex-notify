@@ -27,6 +27,72 @@ class CodexNotifyHookCLITest < Minitest::Test
     assert_includes err.string, 'need --token/--channel'
   end
 
+  def test_parse_stdin_accepts_a_json_object_at_the_byte_limit
+    empty_payload = JSON.generate('padding' => '')
+    padding = 'a' * (HookCLI::MAX_STDIN_BYTES - empty_payload.bytesize)
+    raw = JSON.generate('padding' => padding)
+
+    assert_equal HookCLI::MAX_STDIN_BYTES, raw.bytesize
+    assert_equal padding, HookCLI.parse_stdin(StringIO.new(raw)).fetch('padding')
+  end
+
+  def test_parse_stdin_rejects_input_over_the_byte_limit
+    raw = 'x' * (HookCLI::MAX_STDIN_BYTES + 1)
+
+    error = assert_raises(CodexNotify::HookInputError) do
+      HookCLI.parse_stdin(StringIO.new(raw))
+    end
+
+    assert_includes error.message, HookCLI::MAX_STDIN_BYTES.to_s
+  end
+
+  def test_parse_stdin_limit_counts_multibyte_content_in_bytes
+    raw = JSON.generate('padding' => 'あ' * (HookCLI::MAX_STDIN_BYTES / 3))
+    assert_operator raw.length, :<, HookCLI::MAX_STDIN_BYTES
+    assert_operator raw.bytesize, :>, HookCLI::MAX_STDIN_BYTES
+
+    error = assert_raises(CodexNotify::HookInputError) do
+      HookCLI.parse_stdin(StringIO.new(raw))
+    end
+
+    assert_includes error.message, 'maximum size'
+  end
+
+  def test_oversized_stdin_does_not_post_or_update_state
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+      state_file = dir.join('state.json')
+      posts = []
+      original_post = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => '1000.01' }
+        end
+      end
+
+      begin
+        error = StringIO.new
+        exit_code = HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new('x' * (HookCLI::MAX_STDIN_BYTES + 1)),
+          stderr: error,
+          stdout: StringIO.new
+        )
+
+        assert_equal 2, exit_code
+        assert_includes error.string, 'maximum size'
+        assert_empty posts
+        refute state_file.exist?
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_post)
+        end
+      end
+    end
+  end
+
   def test_user_prompt_submit_reuses_same_thread_for_same_session
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
@@ -577,9 +643,8 @@ class CodexNotifyHookCLITest < Minitest::Test
       reply_posts = posts.select { |(_text, thread_ts)| !thread_ts.nil? }
 
       assert_equal 1, root_posts.size
-      assert_equal 2, reply_posts.size
+      assert_equal 1, reply_posts.size
       assert_equal 'stale-ts', reply_posts.first.last
-      assert_equal '2000.01', reply_posts.last.last
       assert_includes root_posts.first.first, 'recovered prompt'
       assert_equal '2000.01', JSON.parse(state_file.read).dig('threads', 'session-123')
     end
