@@ -22,8 +22,9 @@ shared code.
   project's preferred local version.
 - Install dependencies with `bundle install`.
 - Run the complete test suite with `rake` (or `bundle exec rake`).
-- The Minitest suite enforces at least 80% line coverage for `lib/`.
+- Maintain and verify at least 90% line coverage for files under `lib/`.
 - Treat warnings as useful defects: the Rake test task enables Ruby warnings.
+- Run every `gh` command with network access enabled.
 
 Do not commit `.env`, `.session`, `.bundle/`, or `vendor/`. Never print or place
 real Slack tokens, channel data, session logs, or Hook payloads in tests,
@@ -102,6 +103,8 @@ the same PR.
   credentials.
 
 ## Documentation and review
+
+Write GitHub issues and pull requests in English.
 
 Keep `README.md`, `.env.sample`, and `.codex/hooks.json.example` synchronized
 with configuration, CLI, or Hook contract changes. In the PR summary, call out
