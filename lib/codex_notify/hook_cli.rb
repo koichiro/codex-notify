@@ -2,6 +2,7 @@
 
 require 'json'
 require_relative 'hook_config'
+require_relative 'hook_input_validator'
 require_relative 'hook_runner'
 require_relative 'message_formatter'
 
@@ -18,7 +19,6 @@ module CodexNotify
       end
 
       payload = parse_stdin(stdin)
-      event_name = args.event_name || payload['hook_event_name'] || payload['event']
 
       runner = HookRunner.new(
         token: args.token,
@@ -29,9 +29,12 @@ module CodexNotify
         mode: args.mode,
         stdout: stdout
       )
-      runner.run(event_name:, payload:)
+      runner.run(event_name: args.event_name, payload:)
     rescue Interrupt
       0
+    rescue HookInputError => e
+      stderr.puts("ERROR: #{e.message}")
+      2
     rescue StandardError => e
       stderr.puts("ERROR: #{e.class}: #{e.message}")
       1
@@ -39,11 +42,14 @@ module CodexNotify
 
     def parse_stdin(stdin)
       raw = stdin.read.to_s
-      return {} if raw.strip.empty?
+      raise HookInputError, 'hook stdin is empty' if raw.strip.empty?
 
-      JSON.parse(raw)
+      payload = JSON.parse(raw)
+      raise HookInputError, 'hook payload must be a JSON object' unless payload.is_a?(Hash)
+
+      payload
     rescue JSON::ParserError
-      {}
+      raise HookInputError, 'hook stdin is not valid JSON'
     end
   end
 end
