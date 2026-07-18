@@ -91,6 +91,38 @@ class CodexNotifyCLITest < Minitest::Test
     end
   end
 
+  def test_main_starts_at_beginning_only_in_once_mode
+    with_tmpdir do |dir|
+      session_file = dir.join('rollout.jsonl')
+      session_file.write("{\"type\":\"session_meta\",\"payload\":{\"id\":\"session-123\"}}\n")
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      start_at_end_values = []
+      original_iter_follow_lines = CodexNotify::SessionLog.method(:iter_follow_lines)
+      original_process_stream = CodexNotify::StreamProcessor.method(:process_codex_log_stream)
+      with_silenced_warnings do
+        CodexNotify::SessionLog.singleton_class.send(:define_method, :iter_follow_lines) do |_path, **options|
+          start_at_end_values << options.fetch(:start_at_end)
+          [].each
+        end
+        CodexNotify::StreamProcessor.singleton_class.send(:define_method, :process_codex_log_stream) { |*, **| 0 }
+      end
+
+      begin
+        CLI.main(['--env-file', 'missing.env', '--session-file', session_file.to_s], stderr: StringIO.new)
+        CLI.main(['--env-file', 'missing.env', '--session-file', session_file.to_s, '--once'], stderr: StringIO.new)
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SessionLog.singleton_class.send(:define_method, :iter_follow_lines, original_iter_follow_lines)
+          CodexNotify::StreamProcessor.singleton_class.send(:define_method, :process_codex_log_stream, original_process_stream)
+        end
+      end
+
+      assert_equal [true, false], start_at_end_values
+    end
+  end
+
   private
 
   def with_tmpdir
