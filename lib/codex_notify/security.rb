@@ -54,5 +54,19 @@ module CodexNotify
         'and shell history; use SLACK_BOT_TOKEN or a permission-restricted env file.'
       )
     end
+
+    def warn_deprecated_repository_credentials(path, keys, stderr: $stderr)
+      stderr.puts(
+        "WARNING: repository Slack settings #{keys.join(' and ')} loaded from automatically discovered env file #{path} " \
+        'are deprecated; configure a trusted destination profile and use CODEX_NOTIFY_DESTINATION.'
+      )
+    end
+
+    def warn_ignored_repository_credentials(path, keys, policy: nil, stderr: $stderr)
+      reason = policy ? " under the #{policy} policy" : ''
+      stderr.puts(
+        "WARNING: ignored #{keys.join(', ')} from automatically discovered repository env file #{path}#{reason}."
+      )
+    end
   end
 end

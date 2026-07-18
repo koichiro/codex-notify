@@ -37,6 +37,9 @@ module CodexNotify
     rescue HookInputError => e
       stderr.puts("ERROR: #{e.message}")
       2
+    rescue HookConfig::Error, OptionParser::ParseError => e
+      stderr.puts("ERROR: #{e.message}")
+      2
     rescue StandardError => e
       stderr.puts("ERROR: #{e.class}: #{e.message}")
       1

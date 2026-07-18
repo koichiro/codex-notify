@@ -45,7 +45,10 @@ module CodexNotify
     end
 
     def add_common_options(parser, options)
-      parser.on('--env-file PATH') { |value| options.env_file = value }
+      parser.on('--env-file PATH') do |value|
+        options.env_file = value
+        options.env_file_explicit = true if options.respond_to?(:env_file_explicit=)
+      end
       parser.on('--token TOKEN', 'Deprecated: use SLACK_BOT_TOKEN or --env-file') do |value|
         options.token = value
         options.token_from_cli = true

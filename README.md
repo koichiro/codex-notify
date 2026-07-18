@@ -121,6 +121,9 @@ chmod 600 .env
 ```env
 SLACK_BOT_TOKEN=xoxb-your-token
 SLACK_CHANNEL=C0123456789
+# SLACK_BOT_TOKEN__PROJECT_A=xoxb-project-a-token
+# SLACK_CHANNEL__PROJECT_A=C1111111111
+# CODEX_NOTIFY_ENV_POLICY=restricted
 CODEX_NOTIFY_USER_NAME=user
 CODEX_PROMPT=
 CODEX_NOTIFY_TITLE=
@@ -131,6 +134,10 @@ Variables:
 
 - `SLACK_BOT_TOKEN`: Slack bot token used for `chat.postMessage`
 - `SLACK_CHANNEL`: Slack channel ID to receive the run thread
+- `SLACK_BOT_TOKEN__NAME`: optional Slack bot token for the named Hook destination `NAME`
+- `SLACK_CHANNEL__NAME`: required Slack channel for the named Hook destination `NAME`
+- `CODEX_NOTIFY_DESTINATION`: named Hook destination selected by a repository or process environment
+- `CODEX_NOTIFY_ENV_POLICY`: Hook env policy; set `restricted` in trusted tool configuration to filter repository credentials
 - `CODEX_NOTIFY_USER_NAME`: Label used for user messages in Slack, default is the local system user
 - `CODEX_PROMPT`: Optional initial prompt to post as a user message when monitoring begins
 - `CODEX_NOTIFY_TITLE`: Optional title used for the root Slack message or hook session thread
@@ -332,12 +339,55 @@ Useful options:
 - `--state-file ~/.codex-notify-hook/state.json`: change where session thread mappings are stored
 - `--mode normal|debug`: choose normal notifications or detailed debug notifications
 - `--env-file .env.local`: load a different env file
+- `--destination PROJECT_A`: select a trusted named Slack destination
 
 `--token` remains available for compatibility but is deprecated. Prefer `SLACK_BOT_TOKEN` in a `0600` env file.
 
 ### Hook data and destination
 
-The configured `SLACK_BOT_TOKEN` determines the Slack workspace, and `SLACK_CHANNEL` determines the destination channel. Hook definitions are the allowlist: configure only the event types you intend to send. `codex-notify-hook` accepts only the following supported events and rejects other event names.
+The configured `SLACK_BOT_TOKEN` determines the Slack workspace, and `SLACK_CHANNEL` determines the default destination channel. Hook definitions are the allowlist: configure only the event types you intend to send. `codex-notify-hook` accepts only the following supported events and rejects other event names.
+
+#### Named destination profiles
+
+Named profiles let a repository select a preconfigured destination without storing Slack credentials or raw channel IDs in that repository. Define profiles in the process environment or the codex-notify project-root `.env`:
+
+```env
+# Default destination and fallback token
+SLACK_BOT_TOKEN=xoxb-default-token
+SLACK_CHANNEL=C0000000000
+
+# Named destination with its own token
+SLACK_BOT_TOKEN__PROJECT_A=xoxb-project-a-token
+SLACK_CHANNEL__PROJECT_A=C1111111111
+
+# Named destination reusing SLACK_BOT_TOKEN
+SLACK_CHANNEL__PROJECT_B=C2222222222
+```
+
+A repository may then select the profile in its `.env` without owning the credentials:
+
+```env
+CODEX_NOTIFY_DESTINATION=PROJECT_A
+CODEX_NOTIFY_TITLE=Project A
+```
+
+Destination names are normalized to uppercase and must contain only `A-Z`, `0-9`, and `_`. The selection precedence is `--destination`, the process environment, an explicitly supplied env file or automatically discovered repository `.env`, trusted tool-root configuration, and finally the default destination. For a selected profile, `SLACK_BOT_TOKEN__NAME` takes precedence over `SLACK_BOT_TOKEN`, while `SLACK_CHANNEL__NAME` is required. A named destination never falls back to the default `SLACK_CHANNEL`; an unknown or incomplete profile exits with status `2` before reading the Hook payload, posting to Slack, or updating state.
+
+Explicit `--token` and `--channel` values remain highest priority, although `--token` is deprecated. Profile definitions from an automatically discovered repository `.env` are always ignored; named profile credentials must come from a trusted process, tool-root, or explicitly supplied `--env-file` source.
+
+#### Repository env policy and migration
+
+Phase 1 keeps the legacy default behavior: when no destination is selected, an automatically discovered repository `.env` may still supply `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`. A deprecation warning is written to stderr when either repository value is actually selected. The warning contains variable names and the file path, never token values.
+
+Set the following in the process environment or codex-notify project-root `.env` to opt into the safer policy:
+
+```env
+CODEX_NOTIFY_ENV_POLICY=restricted
+```
+
+Under `restricted`, an automatically discovered repository `.env` may provide only `CODEX_NOTIFY_DESTINATION`, `CODEX_NOTIFY_TITLE`, `CODEX_NOTIFY_USER_NAME`, and `CODEX_NOTIFY_MODE`. Raw Slack credentials, raw channels, and profile definitions from that file are ignored with a value-free warning. A file explicitly supplied with `--env-file PATH` remains an intentional trusted source and may contain credentials.
+
+To migrate a repository, move its token and channel into a named profile in the codex-notify project-root `.env`, replace those repository values with `CODEX_NOTIFY_DESTINATION=NAME`, verify the Hook destination, and then enable the `restricted` policy in trusted configuration.
 
 | Hook event | Mode | Data sent to Slack |
 | --- | --- | --- |

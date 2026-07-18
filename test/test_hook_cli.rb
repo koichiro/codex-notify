@@ -27,6 +27,46 @@ class CodexNotifyHookCLITest < Minitest::Test
     assert_includes err.string, 'need --token/--channel'
   end
 
+  def test_invalid_destination_returns_configuration_error_without_posting_or_state_update
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL__PROJECT_A'] = 'CPROJECT'
+      state_file = dir.join('state.json')
+      posts = []
+      original_post = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => '1000.01' }
+        end
+      end
+
+      begin
+        error = StringIO.new
+        exit_code = HookCLI.main(
+          [
+            '--env-file', 'missing.env',
+            '--destination', 'project-a',
+            '--state-file', state_file.to_s,
+            '--event', 'UserPromptSubmit'
+          ],
+          stdin: StringIO.new(JSON.generate('session_id' => 'session-123', 'prompt' => 'hello')),
+          stderr: error,
+          stdout: StringIO.new
+        )
+
+        assert_equal 2, exit_code
+        assert_includes error.string, 'destination must contain only'
+        assert_empty posts
+        refute state_file.exist?
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_post)
+        end
+      end
+    end
+  end
+
   def test_parse_stdin_accepts_a_json_object_at_the_byte_limit
     empty_payload = JSON.generate('padding' => '')
     padding = 'a' * (HookCLI::MAX_STDIN_BYTES - empty_payload.bytesize)
