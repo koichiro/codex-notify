@@ -144,6 +144,81 @@ class CodexNotifyHookCLITest < Minitest::Test
     end
   end
 
+  def test_normal_mode_suppresses_internal_ambient_policy_prompt
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      payload = {
+        'session_id' => 'session-123',
+        'cwd' => '/tmp/app',
+        'prompt' => internal_ambient_policy_prompt
+      }
+
+      posts = []
+      original_new = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
+        end
+      end
+
+      begin
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new(JSON.generate(payload)),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_new)
+        end
+      end
+
+      assert_empty posts
+    end
+  end
+
+  def test_debug_mode_keeps_internal_ambient_policy_prompt_visible
+    with_tmpdir do |dir|
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
+      ENV['SLACK_CHANNEL'] = 'C123'
+
+      payload = {
+        'session_id' => 'session-123',
+        'cwd' => '/tmp/app',
+        'prompt' => internal_ambient_policy_prompt
+      }
+
+      posts = []
+      original_new = CodexNotify::SlackClient.instance_method(:post)
+      with_silenced_warnings do
+        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
+          posts << [text, thread_ts]
+          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
+        end
+      end
+
+      begin
+        HookCLI.main(
+          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--mode', 'debug', '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new(JSON.generate(payload)),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
+      ensure
+        with_silenced_warnings do
+          CodexNotify::SlackClient.send(:define_method, :post, original_new)
+        end
+      end
+
+      assert_equal 1, posts.size
+      assert_includes posts.first.first, 'safety and compliance standards'
+    end
+  end
+
   def test_stop_posts_last_assistant_message_in_existing_thread
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
@@ -586,6 +661,23 @@ class CodexNotifyHookCLITest < Minitest::Test
       Get an understanding of the user's intent and goals by deeply viewing their connected apps. Suggest actionable tasks that they would actually act on/click.
       Infer what the user works on and their style from their connected apps.
       Optimize for relief: choose suggestions that make the user's life easier, reduce an open loop, unblock work, or prepare them for something that is about to matter.
+    PROMPT
+  end
+
+  def internal_ambient_policy_prompt
+    <<~PROMPT
+      You are an expert at upholding safety and compliance standards for Codex ambient suggestions.
+
+      I will present you with two categories of content: things to **ALWAYS** exclude, and things which you should exclude if they are about the user (**unless** the recent user context shows the user has specifically asked for it).
+
+      Then, I will show you a list of ambient suggestion candidates.
+
+      Your task is to determine if any suggestions should be excluded in order to adhere to the safety and compliance policies.
+
+      ## 1. Policies to always exclude
+
+      ### A - Abuse (non-hate)
+      - Scope: Content including abuse toward non-protected targets; if target is a protected class, use H instead.
     PROMPT
   end
 end
