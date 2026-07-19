@@ -1,9 +1,12 @@
 # frozen_string_literal: true
 
 require 'stringio'
+require 'tmpdir'
 require_relative 'test_helper'
+require_relative 'support/fake_slack_client'
 
 class CodexNotifyStreamProcessorTest < Minitest::Test
+  FakeSlackClient = HookTestSupport::FakeSlackClient
   StreamProcessor = CodexNotify::StreamProcessor
   ROOT_MESSAGE = CodexNotify::MessageFormatter.message(title: 'root', body: 'root', presentation: :plain)
 
@@ -218,6 +221,32 @@ class CodexNotifyStreamProcessorTest < Minitest::Test
     assert_equal first_user[:ts], first_reply[:thread_ts]
     assert_nil second_user[:thread_ts]
     assert_equal second_user[:ts], second_reply[:thread_ts]
+  end
+
+  def test_durable_stream_persists_and_orders_roots_and_replies
+    Dir.mktmpdir do |dir|
+      client = FakeSlackClient.new
+      outbox = CodexNotify::SlackOutbox.new(Pathname(dir).join('outbox'))
+      store = CodexNotify::HookStore.new(Pathname(dir).join('state.json'))
+      publisher = CodexNotify::DurableSlackPublisher.new(client:, store:, outbox:, channel: 'C123')
+      events = StringIO.new([
+                              '{"type":"event_msg","session_id":"session-1","payload":{"type":"user_message","message":"prompt"}}',
+                              '{"type":"event_msg","session_id":"session-1","payload":{"type":"agent_message","message":"reply"}}'
+                            ].join("\n"))
+
+      code = StreamProcessor.process_codex_log_stream(
+        events, token: 'unused', channel: 'C123', root_message: ROOT_MESSAGE,
+        post_func: ->(*) {}, publisher:
+      )
+
+      assert_equal 0, code
+      assert_nil client.posts.fetch(0).last
+      assert_nil client.posts.fetch(1).last
+      assert_includes client.posts.fetch(1).first, 'prompt'
+      assert_equal '1000.01', client.posts.fetch(2).last
+      assert_includes client.posts.fetch(2).first, 'reply'
+      assert_empty outbox.jobs
+    end
   end
 
 end

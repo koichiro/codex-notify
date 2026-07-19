@@ -32,6 +32,7 @@ module CodexNotify
       update_state do |data|
         key = session_id.to_s
         data['threads'].delete(key)
+        data['generations'][key] = data['generations'].fetch(key, 0).to_i + 1
         data['suppressed_sessions'][key] = {
           'reason' => reason.to_s,
           'suppressed_at' => Time.now.utc.iso8601
@@ -46,6 +47,18 @@ module CodexNotify
     def clear_suppressed_session(session_id)
       update_state do |data|
         data['suppressed_sessions'].delete(session_id.to_s)
+      end
+    end
+
+    def generation_for(session_id)
+      state.fetch('generations', {}).fetch(session_id.to_s, 0).to_i
+    end
+
+    def advance_generation(session_id)
+      update_state do |data|
+        key = session_id.to_s
+        data['threads'].delete(key)
+        data['generations'][key] = data['generations'].fetch(key, 0).to_i + 1
       end
     end
 
@@ -68,7 +81,7 @@ module CodexNotify
     end
 
     def default_state
-      { 'threads' => {}, 'suppressed_sessions' => {} }
+      { 'threads' => {}, 'suppressed_sessions' => {}, 'generations' => {} }
     end
 
     def normalize_state(data)

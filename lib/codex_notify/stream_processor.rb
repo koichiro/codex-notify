@@ -7,7 +7,13 @@ module CodexNotify
     module_function
 
     def process_codex_log_stream(stream, token:, channel:, root_message:, initial_prompt: nil, user_name: 'user', include_tools: false,
-                                 throttle_sec: 0.0, post_func:, sleep_func: Kernel.method(:sleep))
+                                 throttle_sec: 0.0, post_func:, sleep_func: Kernel.method(:sleep), publisher: nil)
+      if publisher
+        return process_durable_stream(
+          stream, root_message:, initial_prompt:, user_name:, include_tools:, publisher:
+        )
+      end
+
       last_sent_fingerprint = nil
       thread_ts_by_session = {}
 
@@ -77,6 +83,59 @@ module CodexNotify
       end
 
       0
+    end
+
+    def process_durable_stream(stream, root_message:, initial_prompt:, user_name:, include_tools:, publisher:)
+      last_sent_fingerprint = nil
+      monitor_key = publisher.key('log-monitor', Process.pid)
+      publisher.publish_standalone(key: monitor_key, message: root_message)
+      return 1 unless drain_succeeded?(publisher)
+
+      unless initial_prompt.nil? || initial_prompt.empty?
+        message = CodexNotify::MessageFormatter.message(title: user_name, body: initial_prompt, presentation: :plain)
+        publisher.publish_root_or_reply(key: publisher.key('log', '__default__'), message:)
+        return 1 unless drain_succeeded?(publisher)
+      end
+
+      stream.each do |raw|
+        line = raw.strip
+        next if line.empty?
+
+        event = JSON.parse(line)
+        session_id = CodexNotify::LogEventParser.extract_session_id(event) || '__default__'
+        extracted_events = CodexNotify::LogEventParser.extract_events(event)
+        next if extracted_events.empty?
+
+        extracted_events.each do |kind, body, part_type|
+          next if body.empty?
+          next if part_type == 'tool' && !include_tools
+
+          fingerprint = "#{session_id}:#{part_type}:#{kind}:#{body[0, 240]}"
+          next if fingerprint == last_sent_fingerprint
+
+          last_sent_fingerprint = fingerprint
+          title = kind == 'assistant' ? 'assistant' : kind
+          presentation = %w[user assistant system].include?(title) ? :plain : :block
+          message_title = kind == 'user' ? user_name : title
+          message = CodexNotify::MessageFormatter.message(title: message_title, body:, presentation:)
+          key = publisher.key('log', session_id)
+          if kind == 'user'
+            publisher.publish_root_or_reply(key:, message:)
+          else
+            publisher.publish_reply(key:, message:, recovery_root_message: message)
+          end
+          return 1 unless drain_succeeded?(publisher)
+        end
+      rescue JSON::ParserError
+        next
+      end
+
+      0
+    end
+
+    def drain_succeeded?(publisher)
+      result = publisher.drain
+      result.failed.empty? && result.needs_review.empty?
     end
   end
 end
