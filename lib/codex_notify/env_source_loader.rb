@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'config_support'
+require_relative 'trusted_config_loader'
 
 module CodexNotify
   class EnvSourceLoader
@@ -44,16 +45,27 @@ module CodexNotify
     include ConfigSupport
     private(*ConfigSupport.instance_methods(false))
 
-    def initialize(app_root: ConfigSupport::APP_ROOT, environment: ENV, stderr: $stderr)
+    def initialize(app_root: ConfigSupport::APP_ROOT, environment: ENV, stderr: $stderr, config_loader: nil)
       @app_root = Pathname(app_root).expand_path
       @environment = environment
       @stderr = stderr
+      @config_loader = config_loader || TrustedConfigLoader.new(environment:, stderr:)
     end
 
-    def load(path: ConfigSupport::DEFAULT_ENV_PATH, explicit: false)
+    def load(path: ConfigSupport::DEFAULT_ENV_PATH, explicit: false, config_path: nil)
       process = Source.new(kind: :process, path: nil, values: @environment.to_h)
       files = resolve_env_paths(path).map { |env_path| load_file(env_path, explicit:) }
-      SourceSet.new([process, *files])
+      configs = @config_loader.load(explicit_path: config_path).map do |config|
+        Source.new(kind: config.kind, path: config.path, values: config.values)
+      end
+      explicit_config, default_config = configs.partition { |source| source.kind == :config_explicit }
+
+      ordered = if explicit
+                  [process, *explicit_config, *files, *default_config]
+                else
+                  [process, *explicit_config, *default_config, *files]
+                end
+      SourceSet.new(ordered)
     end
 
     private

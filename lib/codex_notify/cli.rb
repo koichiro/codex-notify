@@ -43,7 +43,7 @@ module CodexNotify
         )
       end
       unless args.token && args.channel
-        stderr.puts('ERROR: need --token/--channel or env SLACK_BOT_TOKEN / SLACK_CHANNEL')
+        stderr.puts('ERROR: need --token/--channel or a Slack destination from environment or config file')
         return 2
       end
 
@@ -97,6 +97,9 @@ module CodexNotify
     rescue SlackOutbox::Error => e
       stderr.puts("ERROR: #{e.message}")
       1
+    rescue Config::Error, OptionParser::ParseError => e
+      stderr.puts("ERROR: #{e.message}")
+      2
     end
   end
 end

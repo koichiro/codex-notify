@@ -31,10 +31,13 @@ class CodexNotifyHookConfigTest < Minitest::Test
             HookConfig.singleton_class.send(:define_method, :app_root) { dir }
           end
 
-          args = HookConfig.parse_args([])
+          stderr = StringIO.new
+          args = HookConfig.parse_args([], stderr:)
           assert_equal 'xoxb-hook', args.token
           assert_equal 'CHOOK', args.channel
           assert_equal 'hook-user', args.user_name
+          assert_includes stderr.string, 'legacy codex-notify env file'
+          refute_includes stderr.string, 'xoxb-hook'
         end
       end
     ensure
@@ -62,7 +65,7 @@ class CodexNotifyHookConfigTest < Minitest::Test
             HookConfig.singleton_class.send(:define_method, :app_root) { app_root }
           end
 
-          args = HookConfig.parse_args([])
+          args = HookConfig.parse_args([], stderr: StringIO.new)
           assert_equal 'xoxb-hook', args.token
           assert_equal 'CHOOK', args.channel
           assert_equal 'cwd-user', args.user_name
@@ -137,6 +140,29 @@ class CodexNotifyHookConfigTest < Minitest::Test
       assert_equal 'PROJECT_A', args.destination
       assert_equal 'xoxb-default', args.token
       assert_equal 'CPROJECT', args.channel
+    end
+  end
+
+  def test_repository_selects_a_named_destination_from_xdg_config
+    with_tmpdir do |xdg_home|
+      with_tmpdir do |repository|
+        clear_hook_environment
+        ENV['XDG_CONFIG_HOME'] = xdg_home.to_s
+        config_file = xdg_home.join('codex-notify/config.yml')
+        config_file.dirname.mkpath
+        config_file.write(
+          "env_policy: restricted\ndefault_destination:\n  token: xoxb-default\n" \
+          "destinations:\n  PROJECT_A:\n    channel: CPROJECT\n"
+        )
+        config_file.chmod(0o600)
+        write_env(repository.join('.env'), "CODEX_NOTIFY_DESTINATION=PROJECT_A\n")
+
+        args = Dir.chdir(repository) { HookConfig.parse_args }
+
+        assert_equal 'PROJECT_A', args.destination
+        assert_equal 'xoxb-default', args.token
+        assert_equal 'CPROJECT', args.channel
+      end
     end
   end
 

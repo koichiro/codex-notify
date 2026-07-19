@@ -4,18 +4,22 @@ module CodexNotify
   module ConfigDiagnostics
     module_function
 
-    def warn_if_env_file_insecure(path, stderr:)
+    def warn_if_file_insecure(path, label:, stderr:)
       stat = File.stat(path)
       return unless stat.file?
       return if (stat.mode & 0o077).zero?
 
       permissions = format('%04o', stat.mode & 0o777)
       stderr.puts(
-        "WARNING: env file #{path} has permissions #{permissions}; " \
+        "WARNING: #{label} #{path} has permissions #{permissions}; " \
         "use `chmod 600 #{path}` to restrict access to secrets."
       )
     rescue NotImplementedError, SystemCallError
       nil
+    end
+
+    def warn_if_env_file_insecure(path, stderr:)
+      warn_if_file_insecure(path, label: 'env file', stderr:)
     end
 
     def warn_deprecated_cli_token(stderr:)
@@ -36,6 +40,13 @@ module CodexNotify
       reason = policy ? " under the #{policy} policy" : ''
       stderr.puts(
         "WARNING: ignored #{keys.join(', ')} from automatically discovered repository env file #{path}#{reason}."
+      )
+    end
+
+    def warn_deprecated_tool_config(path, keys, stderr:)
+      stderr.puts(
+        "WARNING: #{keys.join(', ')} loaded from legacy codex-notify env file #{path}; " \
+        'move trusted settings to the XDG config file.'
       )
     end
   end

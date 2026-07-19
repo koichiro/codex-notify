@@ -26,6 +26,17 @@ class CodexNotifyCLITest < Minitest::Test
     assert_includes err.string, 'need --token/--channel'
   end
 
+  def test_main_returns_configuration_error_for_missing_explicit_config
+    with_tmpdir do |dir|
+      err = StringIO.new
+
+      exit_code = CLI.main(['--config', dir.join('missing.yml').to_s], stderr: err)
+
+      assert_equal 2, exit_code
+      assert_includes err.string, 'config file does not exist'
+    end
+  end
+
   def test_main_returns_error_without_session_log
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'

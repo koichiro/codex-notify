@@ -66,6 +66,72 @@ class CodexNotifyConfigTest < Minitest::Test
     end
   end
 
+  def test_parse_args_uses_xdg_default_destination
+    with_tmpdir do |xdg_home|
+      config_file = xdg_home.join('codex-notify/config.yml')
+      config_file.dirname.mkpath
+      config_file.write("default_destination:\n  token: xoxb-xdg\n  channel: CXDG\n")
+      config_file.chmod(0o600)
+      ENV['XDG_CONFIG_HOME'] = xdg_home.to_s
+      ENV.delete('SLACK_BOT_TOKEN')
+      ENV.delete('SLACK_CHANNEL')
+
+      args = Config.parse_args(['--env-file', 'missing.env'])
+
+      assert_equal 'xoxb-xdg', args.token
+      assert_equal 'CXDG', args.channel
+    end
+  end
+
+  def test_process_environment_and_explicit_config_precedence
+    with_tmpdir do |dir|
+      xdg_file = dir.join('xdg/codex-notify/config.yml')
+      xdg_file.dirname.mkpath
+      xdg_file.write("default_destination:\n  token: xoxb-xdg\n  channel: CXDG\n")
+      xdg_file.chmod(0o600)
+      explicit = dir.join('explicit.yml')
+      explicit.write("default_destination:\n  token: xoxb-explicit\n  channel: CEXPLICIT\n")
+      explicit.chmod(0o600)
+      ENV['XDG_CONFIG_HOME'] = dir.join('xdg').to_s
+      ENV['SLACK_BOT_TOKEN'] = 'xoxb-process'
+
+      args = Config.parse_args(['--env-file', 'missing.env', '--config', explicit.to_s])
+
+      assert_equal 'xoxb-process', args.token
+      assert_equal 'CEXPLICIT', args.channel
+    end
+  end
+
+  def test_explicit_env_file_precedes_default_xdg_config
+    with_tmpdir do |dir|
+      xdg_file = dir.join('xdg/codex-notify/config.yml')
+      xdg_file.dirname.mkpath
+      xdg_file.write("default_destination:\n  token: xoxb-xdg\n  channel: CXDG\n")
+      xdg_file.chmod(0o600)
+      env_file = dir.join('explicit.env')
+      env_file.write("SLACK_CHANNEL=CENV\n")
+      env_file.chmod(0o600)
+      ENV['XDG_CONFIG_HOME'] = dir.join('xdg').to_s
+      ENV.delete('SLACK_BOT_TOKEN')
+      ENV.delete('SLACK_CHANNEL')
+
+      args = Config.parse_args(['--env-file', env_file.to_s])
+
+      assert_equal 'xoxb-xdg', args.token
+      assert_equal 'CENV', args.channel
+    end
+  end
+
+  def test_missing_explicit_config_is_a_configuration_error
+    with_tmpdir do |dir|
+      error = assert_raises(Config::Error) do
+        Config.parse_args(['--env-file', 'missing.env', '--config', dir.join('missing.yml').to_s])
+      end
+
+      assert_includes error.message, 'config file does not exist'
+    end
+  end
+
   def test_parse_args_uses_prompt_and_title_from_environment
     ENV['CODEX_PROMPT'] = 'Investigate failing tests'
     ENV['CODEX_NOTIFY_TITLE'] = 'Codex run: tests'
@@ -135,10 +201,13 @@ class CodexNotifyConfigTest < Minitest::Test
             Config.singleton_class.send(:define_method, :app_root) { app_root }
           end
 
-          args = Config.parse_args([])
+          stderr = StringIO.new
+          args = Config.parse_args([], stderr:)
           assert_equal 'xoxb-app-root', args.token
           assert_equal 'CROOT', args.channel
           assert_equal 'cwd-user', args.user_name
+          assert_includes stderr.string, 'legacy codex-notify env file'
+          refute_includes stderr.string, 'xoxb-app-root'
         end
       end
     ensure

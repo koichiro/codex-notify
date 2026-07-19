@@ -3,6 +3,8 @@
 require 'optparse'
 require 'pathname'
 require_relative 'config_support'
+require_relative 'destination_resolver'
+require_relative 'env_source_loader'
 
 module CodexNotify
   module Config
@@ -12,10 +14,15 @@ module CodexNotify
     DEFAULT_SESSIONS_DIR = Pathname(File.expand_path('~/.codex/sessions'))
     DEFAULT_OUTBOX_DIR = Pathname(File.expand_path('~/.codex-notify/outbox'))
 
+    class Error < StandardError; end
+
     Args = Struct.new(
       :env_file,
+      :env_file_explicit,
+      :config_file,
       :token,
       :channel,
+      :destination,
       :user_name,
       :prompt,
       :title,
@@ -37,8 +44,11 @@ module CodexNotify
     def build_parser
       options = Args.new(
         env_file: DEFAULT_ENV_PATH,
+        env_file_explicit: false,
+        config_file: nil,
         token: nil,
         channel: nil,
+        destination: nil,
         user_name: nil,
         prompt: nil,
         title: nil,
@@ -73,10 +83,26 @@ module CodexNotify
     def parse_args(argv = nil, stderr: $stderr)
       parser, options = build_parser
       parser.parse!(argv || [])
-      apply_common_config(options, stderr:)
-      options.outbox_dir ||= ENV['CODEX_NOTIFY_OUTBOX_DIR'] || DEFAULT_OUTBOX_DIR.to_s
-      options.prompt ||= ENV['CODEX_PROMPT']
+      ConfigDiagnostics.warn_deprecated_cli_token(stderr:) if options.token_from_cli
+
+      sources = EnvSourceLoader.new(app_root:, stderr:).load(
+        path: options.env_file,
+        explicit: options.env_file_explicit,
+        config_path: options.config_file
+      )
+      policy = resolve_policy(sources, stderr:)
+      warn_ignored_repository_values(sources, policy:, stderr:)
+      apply_destination(options, sources, policy:, stderr:)
+
+      eligible = eligible_sources(sources, policy:)
+      trusted = trusted_sources(sources)
+      options.user_name ||= eligible.lookup('CODEX_NOTIFY_USER_NAME')&.value || system_user_name
+      options.title ||= eligible.lookup('CODEX_NOTIFY_TITLE')&.value
+      options.prompt ||= eligible.lookup('CODEX_PROMPT')&.value
+      options.outbox_dir ||= trusted.lookup('CODEX_NOTIFY_OUTBOX_DIR')&.value || DEFAULT_OUTBOX_DIR.to_s
       options
+    rescue ConfigSupport::Error, EnvSourceLoader::Error, TrustedConfigLoader::Error, DestinationResolver::Error => e
+      raise Error, e.message
     end
   end
 end

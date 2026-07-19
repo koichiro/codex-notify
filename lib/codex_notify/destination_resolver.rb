@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
+require_relative 'destination_name'
+
 module CodexNotify
   class DestinationResolver
-    DESTINATION_PATTERN = /\A[A-Z0-9_]+\z/
-
     class Error < StandardError; end
 
     Resolution = Struct.new(
@@ -25,19 +25,14 @@ module CodexNotify
       selected = destination || selection_sources.lookup('CODEX_NOTIFY_DESTINATION')&.value
       return resolve_default(token:, channel:) unless selected
 
-      resolve_profile(normalize_destination(selected), token:, channel:)
+      resolve_profile(DestinationName.normalize(selected), token:, channel:)
+    rescue DestinationName::Error => e
+      raise Error, e.message
     end
 
     private
 
     attr_reader :selection_sources, :profile_sources, :default_sources
-
-    def normalize_destination(value)
-      normalized = value.to_s.strip.upcase
-      return normalized if DESTINATION_PATTERN.match?(normalized)
-
-      raise Error, 'destination must contain only A-Z, 0-9, and _'
-    end
 
     def resolve_profile(destination, token:, channel:)
       channel_key = "SLACK_CHANNEL__#{destination}"

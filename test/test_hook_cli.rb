@@ -31,6 +31,27 @@ class CodexNotifyHookCLITest < Minitest::Test
     assert_includes err.string, 'need --token/--channel'
   end
 
+  def test_missing_explicit_config_fails_before_reading_input_or_updating_state
+    with_tmpdir do |dir|
+      state_file = dir.join('state.json')
+      stdin = Object.new
+      stdin.define_singleton_method(:read) { |_limit| raise 'stdin must not be read' }
+      err = StringIO.new
+
+      exit_code = hook_cli_main(
+        ['--config', dir.join('missing.yml').to_s, '--state-file', state_file.to_s],
+        stdin:,
+        stderr: err,
+        stdout: StringIO.new
+      )
+
+      assert_equal 2, exit_code
+      assert_includes err.string, 'config file does not exist'
+      assert_empty @client.posts
+      refute state_file.exist?
+    end
+  end
+
   def test_invalid_destination_returns_configuration_error_without_posting_or_state_update
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
