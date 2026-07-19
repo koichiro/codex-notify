@@ -20,17 +20,17 @@ class HookThreadPublisherTest < Minitest::Test
 
   def test_ensure_thread_creates_only_one_session_root
     with_publisher do |publisher, client, store|
-      assert_equal '1000.01', publisher.ensure_thread(session_id: 'session-1', root_text: 'session root')
-      assert_equal '1000.01', publisher.ensure_thread(session_id: 'session-1', root_text: 'ignored root')
+      assert_equal '1000.01', publisher.ensure_thread(session_id: 'session-1', root_message: formatted_message('session root'))
+      assert_equal '1000.01', publisher.ensure_thread(session_id: 'session-1', root_message: formatted_message('ignored root'))
 
-      assert_equal [['session root', nil]], client.posts
+      assert_equal [[render(formatted_message('session root')), nil]], client.posts
       assert_equal '1000.01', store.thread_ts_for('session-1')
     end
   end
 
   def test_ensure_thread_skips_an_empty_root
     with_publisher do |publisher, client, store|
-      assert_nil publisher.ensure_thread(session_id: 'session-1', root_text: '')
+      assert_nil publisher.ensure_thread(session_id: 'session-1', root_message: formatted_message(''))
 
       assert_empty client.posts
       assert_nil store.thread_ts_for('session-1')
@@ -39,18 +39,20 @@ class HookThreadPublisherTest < Minitest::Test
 
   def test_publish_root_or_reply_creates_a_root_for_a_new_session
     with_publisher do |publisher, client, store|
-      assert_equal '1000.01', publisher.publish_root_or_reply(session_id: 'session-1', text: 'first prompt')
+      value = formatted_message('first prompt')
+      assert_equal '1000.01', publisher.publish_root_or_reply(session_id: 'session-1', message: value)
 
-      assert_equal [['first prompt', nil]], client.posts
+      assert_equal [[render(value), nil]], client.posts
       assert_equal '1000.01', store.thread_ts_for('session-1')
     end
   end
 
   def test_publish_root_or_reply_posts_to_an_existing_thread
     with_publisher(initial_thread_ts: '1000.01') do |publisher, client, store|
-      assert_equal '1000.01', publisher.publish_root_or_reply(session_id: 'session-1', text: 'next prompt')
+      value = formatted_message('next prompt')
+      assert_equal '1000.01', publisher.publish_root_or_reply(session_id: 'session-1', message: value)
 
-      assert_equal [['next prompt', '1000.01']], client.posts
+      assert_equal [[render(value), '1000.01']], client.posts
       assert_equal '1000.01', store.thread_ts_for('session-1')
     end
   end
@@ -59,8 +61,8 @@ class HookThreadPublisherTest < Minitest::Test
     with_publisher do |publisher, client, store|
       assert_nil publisher.publish_reply(
         session_id: 'session-1',
-        text: 'assistant response',
-        recovery_root_text: 'session root'
+        message: formatted_message('assistant response'),
+        recovery_root_message: formatted_message('session root')
       )
 
       assert_empty client.posts
@@ -77,11 +79,12 @@ class HookThreadPublisherTest < Minitest::Test
 
         { 'ok' => true, 'ts' => (thread_ts || '2000.01') }
       end
+      value = formatted_message('recovered prompt')
 
       with_publisher(client:, initial_thread_ts: 'stale-ts') do |publisher, _client, store|
-        assert_equal '2000.01', publisher.publish_root_or_reply(session_id: 'session-1', text: 'recovered prompt')
+        assert_equal '2000.01', publisher.publish_root_or_reply(session_id: 'session-1', message: value)
 
-        assert_equal [['recovered prompt', 'stale-ts'], ['recovered prompt', nil]], client.posts
+        assert_equal [[render(value), 'stale-ts'], [render(value), nil]], client.posts
         assert_equal '2000.01', store.thread_ts_for('session-1')
       end
     end
@@ -95,18 +98,20 @@ class HookThreadPublisherTest < Minitest::Test
 
       { 'ok' => true, 'ts' => (thread_ts || '3000.01') }
     end
+    reply = formatted_message('assistant response')
+    root = formatted_message('session root')
 
     with_publisher(client:, initial_thread_ts: 'stale-ts') do |publisher, _client, store|
       assert_equal '3000.01', publisher.publish_reply(
         session_id: 'session-1',
-        text: 'assistant response',
-        recovery_root_text: 'session root'
+        message: reply,
+        recovery_root_message: root
       )
 
       assert_equal [
-        ['assistant response', 'stale-ts'],
-        ['session root', nil],
-        ['assistant response', '3000.01']
+        [render(reply), 'stale-ts'],
+        [render(root), nil],
+        [render(reply), '3000.01']
       ], client.posts
       assert_equal '3000.01', store.thread_ts_for('session-1')
     end
@@ -118,15 +123,16 @@ class HookThreadPublisherTest < Minitest::Test
 
       { 'ok' => true, 'ts' => 'unused' }
     end
+    reply = formatted_message('assistant response')
 
     with_publisher(client:, initial_thread_ts: 'stale-ts') do |publisher, _client, store|
       assert_nil publisher.publish_reply(
         session_id: 'session-1',
-        text: 'assistant response',
-        recovery_root_text: nil
+        message: reply,
+        recovery_root_message: nil
       )
 
-      assert_equal [['assistant response', 'stale-ts']], client.posts
+      assert_equal [[render(reply), 'stale-ts']], client.posts
       assert_nil store.thread_ts_for('session-1')
     end
   end
@@ -135,14 +141,15 @@ class HookThreadPublisherTest < Minitest::Test
     client = FakeClient.new do |_text, _thread_ts|
       raise CodexNotify::SlackClient::Error.new('rate limited', error_code: 'ratelimited')
     end
+    value = formatted_message('prompt')
 
     with_publisher(client:, initial_thread_ts: '1000.01') do |publisher, _client, store|
       error = assert_raises(CodexNotify::SlackClient::Error) do
-        publisher.publish_root_or_reply(session_id: 'session-1', text: 'prompt')
+        publisher.publish_root_or_reply(session_id: 'session-1', message: value)
       end
 
       assert_equal 'ratelimited', error.error_code
-      assert_equal [['prompt', '1000.01']], client.posts
+      assert_equal [[render(value), '1000.01']], client.posts
       assert_equal '1000.01', store.thread_ts_for('session-1')
     end
   end
@@ -151,23 +158,24 @@ class HookThreadPublisherTest < Minitest::Test
     client = FakeClient.new do |_text, _thread_ts|
       raise CodexNotify::SlackClient::Error.new('invalid root', error_code: 'invalid_ts')
     end
+    value = formatted_message('first prompt')
 
     with_publisher(client:) do |publisher, _client, store|
       assert_raises(CodexNotify::SlackClient::Error) do
-        publisher.publish_root_or_reply(session_id: 'session-1', text: 'first prompt')
+        publisher.publish_root_or_reply(session_id: 'session-1', message: value)
       end
 
-      assert_equal [['first prompt', nil]], client.posts
+      assert_equal [[render(value), nil]], client.posts
       assert_nil store.thread_ts_for('session-1')
     end
   end
 
   def test_multi_chunk_root_uses_the_first_chunk_as_root_and_orders_the_rest_as_replies
-    text = 'a' * 7_000
-    expected_parts = CodexNotify::MessageFormatter.chunk_text(text).to_a
+    value = formatted_message('a' * 7_000)
+    expected_parts = CodexNotify::MessageFormatter.chunks(value).to_a
 
     with_publisher do |publisher, client, store|
-      assert_equal '1000.01', publisher.publish_root_or_reply(session_id: 'session-1', text:)
+      assert_equal '1000.01', publisher.publish_root_or_reply(session_id: 'session-1', message: value)
 
       assert_equal expected_parts, client.posts.map(&:first)
       assert_nil client.posts.first.last
@@ -177,14 +185,14 @@ class HookThreadPublisherTest < Minitest::Test
   end
 
   def test_multi_chunk_reply_preserves_order_in_the_existing_thread
-    text = 'b' * 7_000
-    expected_parts = CodexNotify::MessageFormatter.chunk_text(text).to_a
+    value = formatted_message('b' * 7_000)
+    expected_parts = CodexNotify::MessageFormatter.chunks(value).to_a
 
     with_publisher(initial_thread_ts: '1000.01') do |publisher, client, _store|
       assert_equal '1000.01', publisher.publish_reply(
         session_id: 'session-1',
-        text:,
-        recovery_root_text: 'session root'
+        message: value,
+        recovery_root_message: formatted_message('session root')
       )
 
       assert_equal expected_parts, client.posts.map(&:first)
@@ -202,6 +210,14 @@ class HookThreadPublisherTest < Minitest::Test
   end
 
   private
+
+  def formatted_message(body)
+    CodexNotify::MessageFormatter.message(title: 'title', body:, presentation: :plain)
+  end
+
+  def render(value)
+    CodexNotify::MessageFormatter.chunks(value).to_a.fetch(0)
+  end
 
   def with_publisher(client: FakeClient.new, initial_thread_ts: nil)
     Dir.mktmpdir do |dir|

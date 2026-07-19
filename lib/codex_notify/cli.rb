@@ -32,7 +32,7 @@ module CodexNotify
         stderr.puts('ERROR: no Codex session log file found')
         return 2
       end
-      root_text = CodexNotify::MessageFormatter.build_root_text(
+      root_message = CodexNotify::MessageFormatter.build_root_message(
         title,
         cwd,
         user_name: args.user_name,
@@ -50,7 +50,7 @@ module CodexNotify
         ),
         token: args.token,
         channel: args.channel,
-        root_text:,
+        root_message:,
         initial_prompt: args.prompt,
         user_name: args.user_name,
         include_tools: args.include_tools,

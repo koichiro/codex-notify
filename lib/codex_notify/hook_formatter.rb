@@ -7,39 +7,39 @@ module CodexNotify
   module HookFormatter
     module_function
 
-    def session_root_text(event, title:, user_name:)
+    def session_root_message(event, title:, user_name:)
       body = [
         'Codex hook notification started.',
         "CWD: #{event.cwd}",
         "User: #{user_name}",
         "Session ID: #{event.session_id}"
       ].join("\n")
-      MessageFormatter.fmt_block(title, body)
+      tool_message(title, body)
     end
 
-    def prompt_text(event, user_name:)
-      MessageFormatter.fmt_plain(user_name, event.prompt.to_s)
+    def prompt_message(event, user_name:)
+      MessageFormatter.message(title: user_name, body: event.prompt, presentation: :plain)
     end
 
-    def assistant_text(event)
-      MessageFormatter.fmt_plain('assistant', event.assistant_message.to_s)
+    def assistant_message(event)
+      MessageFormatter.message(title: 'assistant', body: event.assistant_message, presentation: :plain)
     end
 
-    def tool_text(title, body)
-      MessageFormatter.fmt_block(title, body.to_s)
+    def tool_message(title, body)
+      MessageFormatter.message(title:, body:, presentation: :block)
     end
 
-    def format_pre_tool(event)
+    def pre_tool_message(event)
       command = event.tool_input['command']
       if command.nil? || command.to_s.empty?
         payload = JSON.pretty_generate(event.raw_payload)
-        return tool_text('tool', payload)
+        return tool_message('tool', payload)
       end
 
-      tool_text('tool', "$ #{command}")
+      tool_message('tool', "$ #{command}")
     end
 
-    def format_post_tool(event)
+    def post_tool_message(event)
       output = event.tool_response['output']
       exit_code = event.tool_response['exit_code']
       stderr = event.tool_response['stderr']
@@ -49,13 +49,13 @@ module CodexNotify
       parts << "[output]\n#{output}" unless output.nil? || output.to_s.empty?
       parts << "[stderr]\n#{stderr}" unless stderr.nil? || stderr.to_s.empty?
       parts = [JSON.pretty_generate(event.raw_payload)] if parts.empty?
-      tool_text('tool', parts.join("\n\n"))
+      tool_message('tool', parts.join("\n\n"))
     end
 
-    def format_permission_request(event)
+    def permission_request_message(event)
       description = event.tool_input['description']
       description ||= 'Codex is waiting for your approval.'
-      tool_text("approval required: #{event.tool_name}", description)
+      tool_message("approval required: #{event.tool_name}", description)
     end
   end
 end
