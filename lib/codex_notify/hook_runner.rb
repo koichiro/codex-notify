@@ -1,11 +1,9 @@
 # frozen_string_literal: true
 
-require 'json'
-require 'pathname'
 require_relative 'hook_config'
 require_relative 'hook_store'
 require_relative 'hook_formatter'
-require_relative 'message_formatter'
+require_relative 'hook_thread_publisher'
 require_relative 'slack_client'
 
 module CodexNotify
@@ -38,8 +36,9 @@ module CodexNotify
     ].freeze
 
     def initialize(token:, channel:, user_name:, title:, state_file:, mode: HookConfig::DEFAULT_MODE, stdout: $stdout)
-      @client = SlackClient.new(token:, channel:)
       @store = HookStore.new(state_file)
+      client = SlackClient.new(token:, channel:)
+      @publisher = HookThreadPublisher.new(client:, store: @store)
       @user_name = user_name
       @title = title
       @mode = mode
@@ -69,64 +68,18 @@ module CodexNotify
 
     private
 
-    def thread_for(session_id)
-      @store.thread_ts_for(session_id)
-    end
-
     def session_root_text(event)
       title = @title || "Codex session: #{File.basename(event.cwd)}"
       HookFormatter.session_root_text(event, title:, user_name: @user_name)
     end
 
-    def ensure_session_thread(event, root_text: nil)
-      session_id = event.session_id
-      thread_ts = thread_for(session_id)
-      return [session_id, thread_ts, false] if thread_ts
-
-      return [session_id, nil, false] if root_text.nil? || root_text.to_s.empty?
-
-      parts = MessageFormatter.chunk_text(root_text).to_a
-      response = @client.post(parts.shift)
-      thread_ts = response.fetch('ts').to_s
-      @store.save_thread_ts(session_id, thread_ts)
-      post_parts(parts, thread_ts:)
-      [session_id, thread_ts, true]
-    end
-
-    def stale_thread_error?(error)
-      return false unless error.is_a?(SlackClient::Error)
-
-      %w[thread_not_found message_not_found invalid_ts].include?(error.error_code)
-    end
-
-    def post_with_thread_recovery(event, text, fallback_root_text:)
-      session_id = event.session_id
-      thread_ts = thread_for(session_id)
-      return if thread_ts.nil?
-
-      post_parts(MessageFormatter.chunk_text(text), thread_ts:)
-    rescue SlackClient::Error => e
-      raise unless stale_thread_error?(e)
-
-      @store.clear_thread(session_id)
-      _session_id, recovered_thread_ts, = ensure_session_thread(event, root_text: fallback_root_text)
-      return if recovered_thread_ts.nil?
-      return if fallback_root_text == text
-
-      post_parts(MessageFormatter.chunk_text(text), thread_ts: recovered_thread_ts)
-    end
-
-    def post_parts(parts, thread_ts:)
-      parts.each { |part| @client.post(part, thread_ts:) }
-    end
-
     def handle_session_start(event)
       if reset_thread_on_session_start?(event)
         session_id = event.session_id
-        @store.clear_thread(session_id)
+        @publisher.reset_thread(session_id:)
         @store.clear_suppressed_session(session_id)
       end
-      ensure_session_thread(event, root_text: session_root_text(event)) if debug?
+      @publisher.ensure_thread(session_id: event.session_id, root_text: session_root_text(event)) if debug?
     end
 
     def handle_user_prompt_submit(event)
@@ -140,42 +93,37 @@ module CodexNotify
       @store.clear_suppressed_session(session_id)
 
       if reset_thread_prompt?(prompt)
-        @store.clear_thread(session_id)
+        @publisher.reset_thread(session_id:)
         return
       end
 
       prompt_text = HookFormatter.prompt_text(event, user_name: @user_name)
-      _session_id, thread_ts, created = ensure_session_thread(event, root_text: prompt_text)
-      return if thread_ts.nil?
-      return if created
-
-      post_with_thread_recovery(event, prompt_text, fallback_root_text: prompt_text)
+      @publisher.publish_root_or_reply(session_id:, text: prompt_text)
     end
 
     def handle_pre_tool_use(event)
       return unless debug?
 
-      _session_id, thread_ts, = ensure_session_thread(event)
-      return if thread_ts.nil?
-
-      post_with_thread_recovery(event, HookFormatter.format_pre_tool(event), fallback_root_text: session_root_text(event))
+      @publisher.publish_reply(
+        session_id: event.session_id,
+        text: HookFormatter.format_pre_tool(event),
+        recovery_root_text: session_root_text(event)
+      )
     end
 
     def handle_post_tool_use(event)
       return unless debug?
 
-      _session_id, thread_ts, = ensure_session_thread(event)
-      return if thread_ts.nil?
-
-      post_with_thread_recovery(event, HookFormatter.format_post_tool(event), fallback_root_text: session_root_text(event))
+      @publisher.publish_reply(
+        session_id: event.session_id,
+        text: HookFormatter.format_post_tool(event),
+        recovery_root_text: session_root_text(event)
+      )
     end
 
     def handle_permission_request(event)
       text = HookFormatter.format_permission_request(event)
-      _session_id, thread_ts, created = ensure_session_thread(event, root_text: text)
-      return if thread_ts.nil? || created
-
-      post_with_thread_recovery(event, text, fallback_root_text: text)
+      @publisher.publish_root_or_reply(session_id: event.session_id, text:)
     end
 
     def handle_stop(event)
@@ -185,11 +133,12 @@ module CodexNotify
       message = event.assistant_message
       return if normal? && internal_ambient_suggestions_response?(message)
 
-      _session_id, thread_ts, = ensure_session_thread(event)
-      return if thread_ts.nil?
-
       unless message.nil? || message.to_s.empty?
-        post_with_thread_recovery(event, HookFormatter.assistant_text(event), fallback_root_text: session_root_text(event))
+        @publisher.publish_reply(
+          session_id:,
+          text: HookFormatter.assistant_text(event),
+          recovery_root_text: session_root_text(event)
+        )
       end
     end
 
