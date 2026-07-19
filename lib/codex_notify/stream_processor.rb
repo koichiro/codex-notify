@@ -6,36 +6,35 @@ module CodexNotify
   module StreamProcessor
     module_function
 
-    def process_codex_log_stream(stream, token:, channel:, root_text:, initial_prompt: nil, user_name: 'user', include_tools: false,
+    def process_codex_log_stream(stream, token:, channel:, root_message:, initial_prompt: nil, user_name: 'user', include_tools: false,
                                  throttle_sec: 0.0, post_func:, sleep_func: Kernel.method(:sleep))
-      post_func.call(token, channel, root_text, nil)
-      sleep_func.call(throttle_sec)
       last_sent_fingerprint = nil
       thread_ts_by_session = {}
 
-      post_thread = lambda do |title, body, thread_ts|
-        CodexNotify::MessageFormatter.chunk_text(body).each do |part|
-          formatter = %w[user assistant system].include?(title) ? CodexNotify::MessageFormatter.method(:fmt_plain) : CodexNotify::MessageFormatter.method(:fmt_block)
-          post_func.call(token, channel, formatter.call(title, part), thread_ts)
+      post_message = lambda do |message, thread_ts|
+        CodexNotify::MessageFormatter.chunks(message).each do |part|
+          post_func.call(token, channel, part, thread_ts)
           sleep_func.call(throttle_sec)
         end
       end
 
-      unless initial_prompt.nil? || initial_prompt.empty?
-        parts = CodexNotify::MessageFormatter.chunk_text(initial_prompt).to_a
-        first_part = parts.shift
-        initial_thread_ts = post_func.call(
-          token,
-          channel,
-          CodexNotify::MessageFormatter.fmt_plain(user_name, first_part),
-          nil
-        ).fetch('ts').to_s
-        thread_ts_by_session['__default__'] = initial_thread_ts
+      post_root = lambda do |message|
+        parts = CodexNotify::MessageFormatter.chunks(message).to_a
+        response = post_func.call(token, channel, parts.shift, nil)
+        thread_ts = response.fetch('ts').to_s
         sleep_func.call(throttle_sec)
         parts.each do |part|
-          post_func.call(token, channel, CodexNotify::MessageFormatter.fmt_plain("#{user_name}(cont.)", part), initial_thread_ts)
+          post_func.call(token, channel, part, thread_ts)
           sleep_func.call(throttle_sec)
         end
+        thread_ts
+      end
+
+      post_root.call(root_message)
+
+      unless initial_prompt.nil? || initial_prompt.empty?
+        message = CodexNotify::MessageFormatter.message(title: user_name, body: initial_prompt, presentation: :plain)
+        thread_ts_by_session['__default__'] = post_root.call(message)
       end
 
       stream.each do |raw|
@@ -57,26 +56,21 @@ module CodexNotify
           last_sent_fingerprint = fingerprint
           title = kind == 'assistant' ? 'assistant' : kind
           thread_ts = thread_ts_by_session[session_id]
+          presentation = %w[user assistant system].include?(title) ? :plain : :block
+          message_title = kind == 'user' ? user_name : title
+          message = CodexNotify::MessageFormatter.message(title: message_title, body: text, presentation:)
 
           if kind == 'user'
-            parts = CodexNotify::MessageFormatter.chunk_text(text).to_a
-            next if parts.empty?
-
             if thread_ts
-              post_func.call(token, channel, CodexNotify::MessageFormatter.fmt_plain(user_name, parts.first), thread_ts)
+              post_message.call(message, thread_ts)
             else
-              thread_ts = post_func.call(token, channel, CodexNotify::MessageFormatter.fmt_plain(user_name, parts.first), nil).fetch('ts').to_s
+              thread_ts = post_root.call(message)
               thread_ts_by_session[session_id] = thread_ts
-            end
-            sleep_func.call(throttle_sec)
-            parts.drop(1).each do |part|
-              post_func.call(token, channel, CodexNotify::MessageFormatter.fmt_plain("#{user_name}(cont.)", part), thread_ts)
-              sleep_func.call(throttle_sec)
             end
             next
           end
 
-          post_thread.call(title, text, thread_ts)
+          post_message.call(message, thread_ts)
         end
       rescue JSON::ParserError
         next

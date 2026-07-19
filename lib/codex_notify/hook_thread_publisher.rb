@@ -12,43 +12,43 @@ module CodexNotify
       @store = store
     end
 
-    def ensure_thread(session_id:, root_text:)
+    def ensure_thread(session_id:, root_message:)
       thread_ts = thread_for(session_id)
       return thread_ts if thread_ts
 
-      create_thread(session_id:, root_text:)
+      create_thread(session_id:, root_message:)
     end
 
-    def publish_root_or_reply(session_id:, text:)
+    def publish_root_or_reply(session_id:, message:)
       thread_ts = thread_for(session_id)
-      return create_thread(session_id:, root_text: text) unless thread_ts
+      return create_thread(session_id:, root_message: message) unless thread_ts
 
       begin
-        post_text(text, thread_ts:)
+        post_message(message, thread_ts:)
         thread_ts
       rescue SlackClient::Error => e
         raise unless stale_thread_error?(e)
 
         reset_thread(session_id:)
-        create_thread(session_id:, root_text: text)
+        create_thread(session_id:, root_message: message)
       end
     end
 
-    def publish_reply(session_id:, text:, recovery_root_text:)
+    def publish_reply(session_id:, message:, recovery_root_message:)
       thread_ts = thread_for(session_id)
       return unless thread_ts
 
       begin
-        post_text(text, thread_ts:)
+        post_message(message, thread_ts:)
         thread_ts
       rescue SlackClient::Error => e
         raise unless stale_thread_error?(e)
 
         reset_thread(session_id:)
-        recovered_thread_ts = create_thread(session_id:, root_text: recovery_root_text)
+        recovered_thread_ts = create_thread(session_id:, root_message: recovery_root_message)
         return unless recovered_thread_ts
 
-        post_text(text, thread_ts: recovered_thread_ts)
+        post_message(message, thread_ts: recovered_thread_ts)
         recovered_thread_ts
       end
     end
@@ -63,10 +63,10 @@ module CodexNotify
       @store.thread_ts_for(session_id)
     end
 
-    def create_thread(session_id:, root_text:)
-      return if root_text.nil? || root_text.to_s.empty?
+    def create_thread(session_id:, root_message:)
+      return if root_message.nil? || root_message.body.empty?
 
-      parts = MessageFormatter.chunk_text(root_text).to_a
+      parts = MessageFormatter.chunks(root_message).to_a
       response = @client.post(parts.shift)
       thread_ts = response.fetch('ts').to_s
       @store.save_thread_ts(session_id, thread_ts)
@@ -74,8 +74,8 @@ module CodexNotify
       thread_ts
     end
 
-    def post_text(text, thread_ts:)
-      post_parts(MessageFormatter.chunk_text(text), thread_ts:)
+    def post_message(message, thread_ts:)
+      post_parts(MessageFormatter.chunks(message), thread_ts:)
     end
 
     def post_parts(parts, thread_ts:)

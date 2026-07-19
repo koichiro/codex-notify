@@ -68,9 +68,9 @@ module CodexNotify
 
     private
 
-    def session_root_text(event)
+    def session_root_message(event)
       title = @title || "Codex session: #{File.basename(event.cwd)}"
-      HookFormatter.session_root_text(event, title:, user_name: @user_name)
+      HookFormatter.session_root_message(event, title:, user_name: @user_name)
     end
 
     def handle_session_start(event)
@@ -79,7 +79,7 @@ module CodexNotify
         @publisher.reset_thread(session_id:)
         @store.clear_suppressed_session(session_id)
       end
-      @publisher.ensure_thread(session_id: event.session_id, root_text: session_root_text(event)) if debug?
+      @publisher.ensure_thread(session_id: event.session_id, root_message: session_root_message(event)) if debug?
     end
 
     def handle_user_prompt_submit(event)
@@ -97,8 +97,8 @@ module CodexNotify
         return
       end
 
-      prompt_text = HookFormatter.prompt_text(event, user_name: @user_name)
-      @publisher.publish_root_or_reply(session_id:, text: prompt_text)
+      message = HookFormatter.prompt_message(event, user_name: @user_name)
+      @publisher.publish_root_or_reply(session_id:, message:)
     end
 
     def handle_pre_tool_use(event)
@@ -106,8 +106,8 @@ module CodexNotify
 
       @publisher.publish_reply(
         session_id: event.session_id,
-        text: HookFormatter.format_pre_tool(event),
-        recovery_root_text: session_root_text(event)
+        message: HookFormatter.pre_tool_message(event),
+        recovery_root_message: session_root_message(event)
       )
     end
 
@@ -116,14 +116,14 @@ module CodexNotify
 
       @publisher.publish_reply(
         session_id: event.session_id,
-        text: HookFormatter.format_post_tool(event),
-        recovery_root_text: session_root_text(event)
+        message: HookFormatter.post_tool_message(event),
+        recovery_root_message: session_root_message(event)
       )
     end
 
     def handle_permission_request(event)
-      text = HookFormatter.format_permission_request(event)
-      @publisher.publish_root_or_reply(session_id: event.session_id, text:)
+      message = HookFormatter.permission_request_message(event)
+      @publisher.publish_root_or_reply(session_id: event.session_id, message:)
     end
 
     def handle_stop(event)
@@ -136,8 +136,8 @@ module CodexNotify
       unless message.nil? || message.to_s.empty?
         @publisher.publish_reply(
           session_id:,
-          text: HookFormatter.assistant_text(event),
-          recovery_root_text: session_root_text(event)
+          message: HookFormatter.assistant_message(event),
+          recovery_root_message: session_root_message(event)
         )
       end
     end

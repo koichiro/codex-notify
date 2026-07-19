@@ -5,6 +5,7 @@ require_relative 'test_helper'
 
 class CodexNotifyStreamProcessorTest < Minitest::Test
   StreamProcessor = CodexNotify::StreamProcessor
+  ROOT_MESSAGE = CodexNotify::MessageFormatter.message(title: 'root', body: 'root', presentation: :plain)
 
   def test_process_codex_log_stream_posts_initial_prompt_as_user_root
     posts = []
@@ -22,7 +23,7 @@ class CodexNotifyStreamProcessorTest < Minitest::Test
       events,
       token: 'xoxb-token',
       channel: 'C123',
-      root_text: 'root',
+      root_message: ROOT_MESSAGE,
       initial_prompt: 'Investigate failing tests',
       user_name: 'koichiro',
       post_func: fake_post,
@@ -51,11 +52,11 @@ class CodexNotifyStreamProcessorTest < Minitest::Test
                            '{"type":"event_msg","payload":{"type":"agent_message","message":"working on it"}}'
                          ].join("\n"))
 
-    exit_code = StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_text: 'root',
+    exit_code = StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_message: ROOT_MESSAGE,
                                                          post_func: fake_post, sleep_func: ->(_) {})
 
     assert_equal 0, exit_code
-    assert_equal 'root', posts[0][:text]
+    assert_equal "*root*\nroot", posts[0][:text]
     assert_nil posts[1][:thread_ts]
     assert_includes posts[1][:text], '*user*'
     assert_includes posts[1][:text], 'fix tests'
@@ -73,7 +74,7 @@ class CodexNotifyStreamProcessorTest < Minitest::Test
 
     events = StringIO.new('{"type":"event_msg","payload":{"type":"user_message","message":"fix tests"}}')
 
-    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_text: 'root',
+    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_message: ROOT_MESSAGE,
                                              user_name: 'koichiro', post_func: fake_post, sleep_func: ->(_) {})
 
     assert(posts.any? { |post| post[:text].include?('*koichiro*') })
@@ -87,7 +88,7 @@ class CodexNotifyStreamProcessorTest < Minitest::Test
     end
 
     events = StringIO.new('{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"done"}}')
-    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_text: 'root',
+    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_message: ROOT_MESSAGE,
                                              post_func: fake_post, sleep_func: ->(_) {})
 
     assert(posts.any? { |post| post[:text].include?('*assistant*') && post[:text].include?('done') })
@@ -101,11 +102,41 @@ class CodexNotifyStreamProcessorTest < Minitest::Test
     end
 
     events = StringIO.new('{"type":"event_msg","payload":{"type":"command_execution","command":"ls","stdout":"ok","exit_code":0}}')
-    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_text: 'root',
+    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_message: ROOT_MESSAGE,
                                              include_tools: true, post_func: fake_post, sleep_func: ->(_) {})
 
     assert(posts.any? { |post| post[:text].include?('*tool*') })
     assert(posts.any? { |post| post[:text].include?('```') })
+  end
+
+  def test_long_tool_message_is_posted_as_self_contained_block_chunks
+    posts = []
+    fake_post = lambda do |_token, _channel, text, thread_ts = nil|
+      posts << { text:, thread_ts: }
+      { 'ok' => true, 'ts' => '123.456' }
+    end
+    output = 'o' * 7_000
+    event = JSON.generate(
+      'type' => 'event_msg',
+      'payload' => { 'type' => 'command_execution', 'command' => 'run', 'stdout' => output, 'exit_code' => 0 }
+    )
+
+    StreamProcessor.process_codex_log_stream(
+      StringIO.new(event),
+      token: 'xoxb-token',
+      channel: 'C123',
+      root_message: ROOT_MESSAGE,
+      include_tools: true,
+      post_func: fake_post,
+      sleep_func: ->(_) {}
+    )
+
+    chunks = posts.drop(1).map { |post| post.fetch(:text) }
+    bodies = chunks.map { |chunk| chunk.split("\n", 2).fetch(1).delete_prefix('```').delete_suffix('```') }
+    assert_operator chunks.length, :>, 1
+    assert chunks.all? { |chunk| chunk.length <= CodexNotify::MessageFormatter::SLACK_SAFE_LENGTH }
+    assert chunks.all? { |chunk| chunk.split("\n", 2).fetch(1).start_with?('```') && chunk.end_with?('```') }
+    assert_includes bodies.join, output
   end
 
   def test_process_codex_log_stream_deduplicates_same_message
@@ -120,7 +151,7 @@ class CodexNotifyStreamProcessorTest < Minitest::Test
                            '{"type":"event_msg","payload":{"type":"agent_message","message":"same"}}'
                          ].join("\n"))
 
-    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_text: 'root',
+    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_message: ROOT_MESSAGE,
                                              post_func: fake_post, sleep_func: ->(_) {})
 
     assistant_posts = posts.select { |post| post[:text].include?('*assistant*') }
@@ -144,7 +175,7 @@ class CodexNotifyStreamProcessorTest < Minitest::Test
                            '{"type":"event_msg","session_id":"session-1","payload":{"type":"agent_message","message":"reply2"}}'
                          ].join("\n"))
 
-    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_text: 'root',
+    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_message: ROOT_MESSAGE,
                                              post_func: fake_post, sleep_func: ->(_) {})
 
     first_user = posts[1]
@@ -175,7 +206,7 @@ class CodexNotifyStreamProcessorTest < Minitest::Test
                            '{"type":"event_msg","session_id":"session-2","payload":{"type":"agent_message","message":"reply2"}}'
                          ].join("\n"))
 
-    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_text: 'root',
+    StreamProcessor.process_codex_log_stream(events, token: 'xoxb-token', channel: 'C123', root_message: ROOT_MESSAGE,
                                              post_func: fake_post, sleep_func: ->(_) {})
 
     first_user = posts[1]

@@ -78,7 +78,8 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
   - a user prompt containing only `---` resets the current session thread without posting to Slack
   - if a saved Slack thread timestamp becomes stale, the hook clears it, recreates the session thread, and retries the current event once
 - Shared:
-  - long payloads are split into safe chunks before posting
+  - long payloads are split with titles and formatting overhead included in the Slack-safe limit
+  - continuation chunks have an explicit `(cont.)` title; block-formatted chunks have balanced code fences
   - `.env` loading via `dotenv`
 
 ## Project Layout
