@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module CodexNotify
-  module Security
+  module SecretProtection
     REDACTED = '[REDACTED]'
     SENSITIVE_NAME = /(?:authorization|proxy[-_]?authorization|token|secret|password|passwd|api[-_]?key)/i
     KNOWN_SECRET_PATTERNS = [
@@ -52,6 +52,20 @@ module CodexNotify
       stderr.puts(
         'WARNING: --token is deprecated because command-line arguments may be visible in process lists ' \
         'and shell history; use SLACK_BOT_TOKEN or a permission-restricted env file.'
+      )
+    end
+
+    def warn_deprecated_repository_credentials(path, keys, stderr: $stderr)
+      stderr.puts(
+        "WARNING: repository Slack settings #{keys.join(' and ')} loaded from automatically discovered env file #{path} " \
+        'are deprecated; configure a trusted destination profile and use CODEX_NOTIFY_DESTINATION.'
+      )
+    end
+
+    def warn_ignored_repository_credentials(path, keys, policy: nil, stderr: $stderr)
+      reason = policy ? " under the #{policy} policy" : ''
+      stderr.puts(
+        "WARNING: ignored #{keys.join(', ')} from automatically discovered repository env file #{path}#{reason}."
       )
     end
   end

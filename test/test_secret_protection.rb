@@ -5,8 +5,8 @@ require 'stringio'
 require 'tmpdir'
 require_relative 'test_helper'
 
-class CodexNotifySecurityTest < Minitest::Test
-  Security = CodexNotify::Security
+class CodexNotifySecretProtectionTest < Minitest::Test
+  SecretProtection = CodexNotify::SecretProtection
 
   def test_redacts_structured_secrets_and_known_token_formats
     text = <<~TEXT
@@ -19,9 +19,9 @@ class CodexNotifySecurityTest < Minitest::Test
       AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
     TEXT
 
-    redacted = Security.redact(text)
+    redacted = SecretProtection.redact(text)
 
-    assert_equal 7, redacted.scan(Security::REDACTED).size
+    assert_equal 7, redacted.scan(SecretProtection::REDACTED).size
     refute_includes redacted, 'super-secret'
     refute_includes redacted, 'correct horse'
     refute_includes redacted, 'bearer-value'
@@ -32,7 +32,7 @@ class CodexNotifySecurityTest < Minitest::Test
   def test_redaction_preserves_non_secret_text
     text = "token count: 42\nbundle exec rake\nrequest completed"
 
-    assert_equal text, Security.redact(text)
+    assert_equal text, SecretProtection.redact(text)
   end
 
   def test_warns_when_env_file_is_group_or_world_readable
@@ -42,7 +42,7 @@ class CodexNotifySecurityTest < Minitest::Test
       File.chmod(0o644, path)
       stderr = StringIO.new
 
-      Security.warn_if_env_file_insecure(path, stderr:)
+      SecretProtection.warn_if_env_file_insecure(path, stderr:)
 
       assert_includes stderr.string, 'permissions 0644'
       assert_includes stderr.string, "chmod 600 #{path}"
@@ -56,7 +56,7 @@ class CodexNotifySecurityTest < Minitest::Test
       File.chmod(0o600, path)
       stderr = StringIO.new
 
-      Security.warn_if_env_file_insecure(path, stderr:)
+      SecretProtection.warn_if_env_file_insecure(path, stderr:)
 
       assert_empty stderr.string
     end
@@ -68,7 +68,7 @@ class CodexNotifySecurityTest < Minitest::Test
                               .post('result: SLACK_BOT_TOKEN=xoxb-leaked-value')
 
       payload = JSON.parse(requests.fetch(0).body)
-      assert_includes payload.fetch('text'), Security::REDACTED
+      assert_includes payload.fetch('text'), SecretProtection::REDACTED
       refute_includes payload.fetch('text'), 'xoxb-leaked-value'
     end
   end
@@ -78,7 +78,7 @@ class CodexNotifySecurityTest < Minitest::Test
       CodexNotify::CLI.slack_post('transport-token', 'C123', 'Authorization: Bearer leaked-value')
 
       payload = JSON.parse(requests.fetch(0).body)
-      assert_equal "Authorization: #{Security::REDACTED}", payload.fetch('text')
+      assert_equal "Authorization: #{SecretProtection::REDACTED}", payload.fetch('text')
     end
   end
 
