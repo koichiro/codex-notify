@@ -10,12 +10,10 @@ class HookRunnerChunkingTest < Minitest::Test
       with_captured_posts do |posts|
         runner = build_runner(dir.join('state.json'))
         prompt = 'a' * 7_000
-        expected = CodexNotify::HookFormatter.prompt_text(user_name: 'Codex', prompt:)
+        event = hook_event('UserPromptSubmit', 'prompt' => prompt)
+        expected = CodexNotify::HookFormatter.prompt_text(event, user_name: 'Codex')
 
-        assert_equal 0, runner.run(
-          event_name: 'UserPromptSubmit',
-          payload: { 'session_id' => 'session-1', 'prompt' => prompt }
-        )
+        assert_equal 0, runner.run(event:)
 
         assert_equal CodexNotify::MessageFormatter.chunk_text(expected).to_a, posts.map(&:first)
         assert_nil posts.first.last
@@ -32,44 +30,27 @@ class HookRunnerChunkingTest < Minitest::Test
 
       with_captured_posts do |posts|
         runner = build_runner(state_file, mode: 'debug')
-        cases = [
-          [
-            'UserPromptSubmit',
-            { 'session_id' => 'session-1', 'prompt' => 'u' * 4_000 },
-            CodexNotify::HookFormatter.prompt_text(user_name: 'Codex', prompt: 'u' * 4_000)
-          ],
-          [
-            'PreToolUse',
-            { 'session_id' => 'session-1', 'tool_name' => 'Bash', 'tool_input' => { 'command' => 'c' * 4_000 } },
-            CodexNotify::HookFormatter.format_pre_tool('tool_input' => { 'command' => 'c' * 4_000 })
-          ],
-          [
-            'PostToolUse',
-            { 'session_id' => 'session-1', 'tool_name' => 'Bash', 'tool_response' => { 'stdout' => 'o' * 4_000 } },
-            CodexNotify::HookFormatter.format_post_tool('tool_response' => { 'stdout' => 'o' * 4_000 })
-          ],
-          [
+        events = [
+          hook_event('UserPromptSubmit', 'prompt' => 'u' * 4_000),
+          hook_event('PreToolUse', 'tool_name' => 'Bash', 'tool_input' => { 'command' => 'c' * 4_000 }),
+          hook_event('PostToolUse', 'tool_name' => 'Bash', 'tool_response' => { 'stdout' => 'o' * 4_000 }),
+          hook_event(
             'PermissionRequest',
-            { 'session_id' => 'session-1', 'tool_name' => 'Bash', 'tool_input' => { 'description' => 'p' * 4_000 } },
-            CodexNotify::HookFormatter.format_permission_request(
-              'tool_name' => 'Bash', 'tool_input' => { 'description' => 'p' * 4_000 }
-            )
-          ],
-          [
-            'Stop',
-            { 'session_id' => 'session-1', 'last_assistant_message' => 'a' * 4_000 },
-            CodexNotify::HookFormatter.assistant_text('a' * 4_000)
-          ]
+            'tool_name' => 'Bash',
+            'tool_input' => { 'description' => 'p' * 4_000 }
+          ),
+          hook_event('Stop', 'last_assistant_message' => 'a' * 4_000)
         ]
 
-        cases.each do |event_name, payload, expected|
+        events.each do |event|
+          expected = formatted_event(event)
           start = posts.length
-          assert_equal 0, runner.run(event_name:, payload:), event_name
+          assert_equal 0, runner.run(event:), event.name
           event_posts = posts.drop(start)
 
           assert_equal CodexNotify::MessageFormatter.chunk_text(expected).to_a,
-                       event_posts.map(&:first), event_name
-          assert event_posts.all? { |(_text, thread_ts)| thread_ts == '1000.01' }, event_name
+                       event_posts.map(&:first), event.name
+          assert event_posts.all? { |(_text, thread_ts)| thread_ts == '1000.01' }, event.name
         end
       end
     end
@@ -81,7 +62,8 @@ class HookRunnerChunkingTest < Minitest::Test
       state_file.write(JSON.generate({ 'threads' => { 'session-1' => 'stale-ts' } }))
       attempts = []
       prompt = 'a' * 7_000
-      expected = CodexNotify::HookFormatter.prompt_text(user_name: 'Codex', prompt:)
+      event = hook_event('UserPromptSubmit', 'prompt' => prompt)
+      expected = CodexNotify::HookFormatter.prompt_text(event, user_name: 'Codex')
 
       stub = lambda do |text, thread_ts|
         attempts << [text, thread_ts]
@@ -93,10 +75,7 @@ class HookRunnerChunkingTest < Minitest::Test
       end
       with_stubbed_post(stub) do
         runner = build_runner(state_file)
-        assert_equal 0, runner.run(
-          event_name: 'UserPromptSubmit',
-          payload: { 'session_id' => 'session-1', 'prompt' => prompt }
-        )
+        assert_equal 0, runner.run(event:)
       end
 
       successful_posts = attempts.reject { |(_text, thread_ts)| thread_ts == 'stale-ts' }
@@ -113,7 +92,8 @@ class HookRunnerChunkingTest < Minitest::Test
       state_file.write(JSON.generate({ 'threads' => { 'session-1' => 'stale-ts' } }))
       attempts = []
       message = 'a' * 7_000
-      expected = CodexNotify::HookFormatter.assistant_text(message)
+      event = hook_event('Stop', 'last_assistant_message' => message)
+      expected = CodexNotify::HookFormatter.assistant_text(event)
 
       stub = lambda do |text, thread_ts|
         attempts << [text, thread_ts]
@@ -125,10 +105,7 @@ class HookRunnerChunkingTest < Minitest::Test
       end
       with_stubbed_post(stub) do
         runner = build_runner(state_file)
-        assert_equal 0, runner.run(
-          event_name: 'Stop',
-          payload: { 'session_id' => 'session-1', 'last_assistant_message' => message }
-        )
+        assert_equal 0, runner.run(event:)
       end
 
       successful_posts = attempts.reject { |(_text, thread_ts)| thread_ts == 'stale-ts' }
@@ -142,6 +119,23 @@ class HookRunnerChunkingTest < Minitest::Test
   end
 
   private
+
+  def hook_event(event_name, fields)
+    CodexNotify::HookInputValidator.validate(
+      event_name:,
+      payload: { 'session_id' => 'session-1' }.merge(fields)
+    )
+  end
+
+  def formatted_event(event)
+    case event.name
+    when 'UserPromptSubmit' then CodexNotify::HookFormatter.prompt_text(event, user_name: 'Codex')
+    when 'PreToolUse' then CodexNotify::HookFormatter.format_pre_tool(event)
+    when 'PostToolUse' then CodexNotify::HookFormatter.format_post_tool(event)
+    when 'PermissionRequest' then CodexNotify::HookFormatter.format_permission_request(event)
+    when 'Stop' then CodexNotify::HookFormatter.assistant_text(event)
+    end
+  end
 
   def build_runner(state_file, mode: 'normal')
     CodexNotify::HookRunner.new(

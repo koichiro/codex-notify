@@ -41,10 +41,11 @@ class HookRunnerConcurrencyTest < Minitest::Test
             state_file: state_file,
             mode: 'normal'
           )
-          runner.run(
+          event = CodexNotify::HookInputValidator.validate(
             event_name: 'UserPromptSubmit',
             payload: { 'session_id' => 'session-1', 'prompt' => "prompt #{index}" }
           )
+          runner.run(event:)
           exit! 0
         end
       end

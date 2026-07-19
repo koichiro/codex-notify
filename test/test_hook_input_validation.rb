@@ -101,13 +101,17 @@ class CodexNotifyHookInputValidationTest < Minitest::Test
     ]
 
     payloads.each do |session_fields|
-      event, session_id = HookInputValidator.validate(
+      event = HookInputValidator.validate(
         event_name: 'SessionStart',
         payload: session_fields.merge('source' => 'resume')
       )
 
-      assert_equal 'SessionStart', event
-      assert_equal 'session-1', session_id
+      assert_instance_of CodexNotify::HookEvent, event
+      assert_equal 'SessionStart', event.name
+      assert_equal 'session-1', event.session_id
+      assert event.frozen?
+      assert event.name.frozen?
+      assert event.session_id.frozen?
     end
   end
 
@@ -174,13 +178,14 @@ class CodexNotifyHookInputValidationTest < Minitest::Test
     }
 
     valid_payloads.each do |event_name, fields|
-      event, session_id = HookInputValidator.validate(
+      event = HookInputValidator.validate(
         event_name:,
         payload: { 'session_id' => 'session-1', 'extra' => true }.merge(fields)
       )
 
-      assert_equal event_name, event
-      assert_equal 'session-1', session_id
+      assert_equal event_name, event.name
+      assert_equal 'session-1', event.session_id
+      assert_nil event.raw_payload
     end
   end
 
@@ -194,12 +199,107 @@ class CodexNotifyHookInputValidationTest < Minitest::Test
     }
 
     valid_payloads.each do |event_name, fields|
-      event, = HookInputValidator.validate(
+      event = HookInputValidator.validate(
         event_name:,
         payload: { 'session_id' => 'session-1' }.merge(fields)
       )
-      assert_equal event_name, event
+      assert_equal event_name, event.name
     end
+  end
+
+  def test_current_legacy_and_nested_shapes_produce_the_same_canonical_event
+    pairs = [
+      ['SessionStart', { 'source' => 'resume' }, { 'payload' => { 'source' => 'resume' } }],
+      ['UserPromptSubmit', { 'prompt' => 'hello' }, { 'payload' => { 'prompt' => 'hello' } }],
+      [
+        'PreToolUse',
+        { 'tool_name' => 'Bash', 'tool_input' => { 'command' => 'pwd' } },
+        { 'payload' => { 'tool_name' => 'Bash', 'command' => 'pwd' } }
+      ],
+      [
+        'PostToolUse',
+        { 'tool_name' => 'Bash', 'tool_response' => { 'stdout' => 'done', 'exitCode' => 0 } },
+        { 'payload' => { 'tool_name' => 'Bash', 'output' => 'done', 'exit_code' => 0 } }
+      ],
+      [
+        'PostToolUse',
+        { 'tool_name' => 'Bash', 'tool_response' => { 'output' => 'done' } },
+        { 'payload' => { 'tool_name' => 'Bash', 'tool_response' => { 'output' => 'done' } } }
+      ],
+      [
+        'PostToolUse',
+        { 'tool_name' => 'Bash', 'tool_response' => { 'output' => 'done' } },
+        { 'tool_name' => 'Bash', 'tool_output' => 'done' }
+      ],
+      [
+        'PostToolUse',
+        { 'tool_name' => 'Bash', 'tool_response' => { 'stderr' => 'failed' } },
+        { 'tool_name' => 'Bash', 'stderr' => 'failed' }
+      ],
+      [
+        'PermissionRequest',
+        { 'tool_name' => 'Bash', 'tool_input' => { 'description' => 'Allow?' } },
+        { 'payload' => { 'tool_name' => 'Bash', 'tool_input' => { 'description' => 'Allow?' } } }
+      ],
+      [
+        'Stop',
+        { 'last_assistant_message' => 'done' },
+        { 'payload' => { 'last_assistant_message' => 'done' } }
+      ]
+    ]
+
+    pairs.each do |event_name, current, compatible|
+      current_event = canonical_event(event_name, current)
+      compatible_event = canonical_event(event_name, compatible)
+
+      assert_equal current_event, compatible_event, event_name
+    end
+  end
+
+  def test_top_level_event_fields_take_precedence_over_nested_fields
+    event = canonical_event(
+      'UserPromptSubmit',
+      'prompt' => 'top-level',
+      'payload' => { 'prompt' => 'nested' }
+    )
+
+    assert_equal 'top-level', event.prompt
+  end
+
+  def test_invalid_explicit_tool_response_is_not_masked_by_legacy_output
+    error = assert_raises(HookInputError) do
+      canonical_event(
+        'PostToolUse',
+        'tool_name' => 'Bash',
+        'tool_response' => 123,
+        'output' => 'legacy output'
+      )
+    end
+
+    assert_includes error.message, 'tool_response must be an object or string'
+  end
+
+  def test_raw_payload_is_retained_only_for_debug_formatting_fallbacks
+    pre_payload = {
+      'session_id' => 'session-1',
+      'tool_name' => 'Bash',
+      'tool_input' => { 'path' => '/tmp' }
+    }
+    post_payload = {
+      'session_id' => 'session-1',
+      'tool_name' => 'Bash',
+      'tool_response' => { 'metadata' => true }
+    }
+
+    pre_event = HookInputValidator.validate(event_name: 'PreToolUse', payload: pre_payload)
+    post_event = HookInputValidator.validate(event_name: 'PostToolUse', payload: post_payload)
+    prompt_event = canonical_event('UserPromptSubmit', 'prompt' => 'hello')
+
+    assert_equal pre_payload, pre_event.raw_payload
+    assert_equal post_payload, post_event.raw_payload
+    assert pre_event.raw_payload.frozen?
+    assert pre_event.raw_payload['tool_input'].frozen?
+    assert_nil prompt_event.raw_payload
   end
 
   def test_empty_stop_message_is_a_successful_no_op
@@ -239,6 +339,13 @@ class CodexNotifyHookInputValidationTest < Minitest::Test
   end
 
   private
+
+  def canonical_event(event_name, fields)
+    HookInputValidator.validate(
+      event_name:,
+      payload: { 'session_id' => 'session-1' }.merge(fields)
+    )
+  end
 
   def invoke(raw, dir:, event: nil, stderr: StringIO.new)
     previous_token = ENV['SLACK_BOT_TOKEN']
