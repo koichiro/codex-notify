@@ -61,7 +61,7 @@ module CodexNotify
     attr_reader :app_root
 
     def load_file(path, explicit:)
-      SecretProtection.warn_if_env_file_insecure(path, stderr: @stderr)
+      ConfigDiagnostics.warn_if_env_file_insecure(path, stderr: @stderr)
       Source.new(kind: source_kind(path, explicit:), path: path.expand_path, values: Dotenv.parse(path.to_s))
     rescue SystemCallError => e
       raise Error, "could not read env file #{path}: #{e.class}"
