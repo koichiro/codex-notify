@@ -17,6 +17,14 @@ module CodexNotify
              runner_factory: HookRunner.method(:new))
       args = HookConfig.parse_args(argv, stderr:)
 
+      if args.migrate_config
+        return ConfigMigrator.new(app_root: HookConfig.app_root, stdout:, stderr:).run(
+          env_path: args.env_file,
+          env_explicit: args.env_file_explicit,
+          config_path: args.config_file
+        )
+      end
+
       if args.outbox_action
         return OutboxCommands.run(
           action: args.outbox_action,
@@ -56,7 +64,7 @@ module CodexNotify
     rescue HookInputError => e
       stderr.puts("ERROR: #{e.message}")
       2
-    rescue HookConfig::Error, OptionParser::ParseError => e
+    rescue HookConfig::Error, ConfigMigrator::Error, OptionParser::ParseError => e
       stderr.puts("ERROR: #{e.message}")
       2
     rescue StandardError => e

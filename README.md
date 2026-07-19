@@ -173,6 +173,32 @@ The XDG config path is never discovered relative to the current repository.
 An explicitly set `XDG_CONFIG_HOME` must be absolute. YAML is loaded without
 aliases, arbitrary Ruby objects, or symbols.
 
+### Migrating a legacy env file
+
+Create the XDG YAML file explicitly from the codex-notify project-root `.env`:
+
+```bash
+bin/codex-notify --migrate-config
+```
+
+To select both paths explicitly:
+
+```bash
+bin/codex-notify --migrate-config \
+  --env-file /path/to/legacy.env \
+  --config /path/to/config.yml
+```
+
+The migration copies only `CODEX_NOTIFY_ENV_POLICY`, the default Slack token
+and channel, and named destination tokens and channels. Routing and presentation
+settings remain in the env file. Destination names are normalized and every
+named destination must have its own channel.
+
+The command creates the output with mode `0600` and refuses to overwrite an
+existing file. It does not modify or delete the source env file and never prints
+credential values. After reviewing the generated YAML and verifying routing in
+a new Codex session, remove migrated secrets from the legacy file manually.
+
 ## Usage
 
 Install dependencies first:
@@ -365,6 +391,7 @@ Useful options:
 - `--state-file ~/.codex-notify-hook/state.json`: change where session thread mappings are stored
 - `--mode normal|debug`: choose normal notifications or detailed debug notifications
 - `--config PATH`: layer an explicit trusted YAML file above the default XDG config
+- `--migrate-config`: create trusted YAML from the project-root or explicitly selected env file
 - `--env-file .env.local`: load a different env file
 - `--destination PROJECT_A`: select a trusted named Slack destination
 - `--outbox-dir PATH`: override the durable delivery spool; repository `.env` files cannot set this in Hook mode
@@ -419,15 +446,16 @@ env_policy: restricted
 
 Under `restricted`, an automatically discovered repository `.env` may provide only `CODEX_NOTIFY_DESTINATION`, `CODEX_NOTIFY_TITLE`, `CODEX_NOTIFY_USER_NAME`, and `CODEX_NOTIFY_MODE`. Raw Slack credentials, raw channels, and profile definitions from that file are ignored with a value-free warning. A file explicitly supplied with `--env-file PATH` remains an intentional trusted source and may contain credentials.
 
-To migrate manually:
+Migration checklist:
 
-1. Create the XDG configuration directory and a `0600` `config.yml`.
-2. Translate `SLACK_BOT_TOKEN`, `SLACK_CHANNEL`, and named profile variables from the project-root `.env` into `default_destination` and `destinations`.
+1. Run `--migrate-config`, or manually create a `0600` XDG `config.yml` and translate the trusted settings.
+2. Review the generated default destination, named destinations, and policy.
 3. Replace repository credentials with `CODEX_NOTIFY_DESTINATION=NAME`.
 4. Verify routing in a new Codex session.
 5. Remove trusted credentials and policy settings from the project-root `.env`.
 
-codex-notify never copies or deletes credentials automatically.
+Migration runs only when explicitly requested. codex-notify never deletes
+credentials automatically.
 
 | Hook event | Mode | Data sent to Slack |
 | --- | --- | --- |

@@ -3,6 +3,7 @@
 require 'optparse'
 require 'pathname'
 require_relative 'config_support'
+require_relative 'config_migrator'
 require_relative 'destination_resolver'
 require_relative 'env_source_loader'
 
@@ -20,6 +21,7 @@ module CodexNotify
       :env_file,
       :env_file_explicit,
       :config_file,
+      :migrate_config,
       :token,
       :channel,
       :destination,
@@ -46,6 +48,7 @@ module CodexNotify
         env_file: DEFAULT_ENV_PATH,
         env_file_explicit: false,
         config_file: nil,
+        migrate_config: false,
         token: nil,
         channel: nil,
         destination: nil,
@@ -83,6 +86,8 @@ module CodexNotify
     def parse_args(argv = nil, stderr: $stderr)
       parser, options = build_parser
       parser.parse!(argv || [])
+      return options if options.migrate_config
+
       ConfigDiagnostics.warn_deprecated_cli_token(stderr:) if options.token_from_cli
 
       sources = EnvSourceLoader.new(app_root:, stderr:).load(
