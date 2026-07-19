@@ -35,9 +35,10 @@ module CodexNotify
       ].freeze
     ].freeze
 
-    def initialize(token:, channel:, user_name:, title:, state_file:, mode: HookConfig::DEFAULT_MODE, stdout: $stdout)
-      @store = HookStore.new(state_file)
-      client = SlackClient.new(token:, channel:)
+    def initialize(token:, channel:, user_name:, title:, state_file:, mode: HookConfig::DEFAULT_MODE, stdout: $stdout,
+                   client: nil, store: nil)
+      @store = store || HookStore.new(state_file)
+      client ||= SlackClient.new(token:, channel:)
       @publisher = HookThreadPublisher.new(client:, store: @store)
       @user_name = user_name
       @title = title

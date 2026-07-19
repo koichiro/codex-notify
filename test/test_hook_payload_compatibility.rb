@@ -3,8 +3,11 @@
 require 'json'
 require 'tmpdir'
 require_relative 'test_helper'
+require_relative 'support/fake_slack_client'
 
 class HookPayloadCompatibilityTest < Minitest::Test
+  include HookTestSupport
+
   def test_current_legacy_and_nested_payloads_produce_the_same_slack_output
     cases = [
       ['SessionStart', { 'source' => 'startup' }, { 'payload' => { 'source' => 'startup' } }],
@@ -62,40 +65,18 @@ class HookPayloadCompatibilityTest < Minitest::Test
         payload: { 'session_id' => 'session-1', 'cwd' => '/tmp/app' }.merge(fields)
       )
 
-      with_stubbed_posts do |posts|
-        runner = CodexNotify::HookRunner.new(
-          token: 'token',
-          channel: 'channel',
-          user_name: 'Codex',
-          title: nil,
-          state_file:,
-          mode: 'debug'
-        )
-        assert_equal 0, runner.run(event:)
-        posts
-      end
+      client = FakeSlackClient.new(root_ts: '2000.01')
+      runner = CodexNotify::HookRunner.new(
+        token: 'token',
+        channel: 'channel',
+        user_name: 'Codex',
+        title: nil,
+        state_file:,
+        mode: 'debug',
+        client:
+      )
+      assert_equal 0, runner.run(event:)
+      client.posts
     end
-  end
-
-  def with_stubbed_posts
-    posts = []
-    original_post = CodexNotify::SlackClient.instance_method(:post)
-    without_warnings do
-      CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-        posts << [text, thread_ts]
-        { 'ok' => true, 'ts' => (thread_ts || '2000.01') }
-      end
-    end
-    yield posts
-  ensure
-    without_warnings { CodexNotify::SlackClient.send(:define_method, :post, original_post) }
-  end
-
-  def without_warnings
-    verbose = $VERBOSE
-    $VERBOSE = nil
-    yield
-  ensure
-    $VERBOSE = verbose
   end
 end

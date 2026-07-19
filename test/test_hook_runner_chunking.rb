@@ -3,12 +3,16 @@
 require 'json'
 require 'tmpdir'
 require_relative 'test_helper'
+require_relative 'support/fake_slack_client'
 
 class HookRunnerChunkingTest < Minitest::Test
+  include HookTestSupport
+
   def test_long_first_prompt_uses_first_chunk_as_root_and_replies_with_the_rest
     with_tmpdir do |dir|
-      with_captured_posts do |posts|
-        runner = build_runner(dir.join('state.json'))
+      with_captured_posts do |client|
+        posts = client.posts
+        runner = build_runner(dir.join('state.json'), client:)
         prompt = 'a' * 7_000
         event = hook_event('UserPromptSubmit', 'prompt' => prompt)
         message = CodexNotify::HookFormatter.prompt_message(event, user_name: 'Codex')
@@ -28,8 +32,9 @@ class HookRunnerChunkingTest < Minitest::Test
       state_file = dir.join('state.json')
       state_file.write(JSON.generate({ 'threads' => { 'session-1' => '1000.01' } }))
 
-      with_captured_posts do |posts|
-        runner = build_runner(state_file, mode: 'debug')
+      with_captured_posts do |client|
+        posts = client.posts
+        runner = build_runner(state_file, mode: 'debug', client:)
         events = [
           hook_event('UserPromptSubmit', 'prompt' => 'u' * 4_000),
           hook_event('PreToolUse', 'tool_name' => 'Bash', 'tool_input' => { 'command' => 'c' * 4_000 }),
@@ -72,10 +77,9 @@ class HookRunnerChunkingTest < Minitest::Test
 
         { 'ok' => true, 'ts' => (thread_ts || '2000.01') }
       end
-      with_stubbed_post(stub) do
-        runner = build_runner(state_file)
-        assert_equal 0, runner.run(event:)
-      end
+      client = FakeSlackClient.new(&stub)
+      runner = build_runner(state_file, client:)
+      assert_equal 0, runner.run(event:)
 
       successful_posts = attempts.reject { |(_text, thread_ts)| thread_ts == 'stale-ts' }
       assert_message_posts(successful_posts, message)
@@ -102,10 +106,9 @@ class HookRunnerChunkingTest < Minitest::Test
 
         { 'ok' => true, 'ts' => (thread_ts || '3000.01') }
       end
-      with_stubbed_post(stub) do
-        runner = build_runner(state_file)
-        assert_equal 0, runner.run(event:)
-      end
+      client = FakeSlackClient.new(&stub)
+      runner = build_runner(state_file, client:)
+      assert_equal 0, runner.run(event:)
 
       successful_posts = attempts.reject { |(_text, thread_ts)| thread_ts == 'stale-ts' }
       root_posts = successful_posts.select { |(_text, thread_ts)| thread_ts.nil? }
@@ -156,44 +159,20 @@ class HookRunnerChunkingTest < Minitest::Test
     end.join
   end
 
-  def build_runner(state_file, mode: 'normal')
+  def build_runner(state_file, mode: 'normal', client:)
     CodexNotify::HookRunner.new(
       token: 'token',
       channel: 'channel',
       user_name: 'Codex',
       title: nil,
       state_file:,
-      mode:
+      mode:,
+      client:
     )
   end
 
   def with_captured_posts
-    posts = []
-    stub = lambda do |text, thread_ts|
-      posts << [text, thread_ts]
-      { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-    end
-    with_stubbed_post(stub) { yield posts }
-  end
-
-  def with_stubbed_post(stub)
-    original_post = CodexNotify::SlackClient.instance_method(:post)
-    without_warnings do
-      CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-        stub.call(text, thread_ts)
-      end
-    end
-    yield
-  ensure
-    without_warnings { CodexNotify::SlackClient.send(:define_method, :post, original_post) } if original_post
-  end
-
-  def without_warnings
-    verbose = $VERBOSE
-    $VERBOSE = nil
-    yield
-  ensure
-    $VERBOSE = verbose
+    yield FakeSlackClient.new
   end
 
   def with_tmpdir

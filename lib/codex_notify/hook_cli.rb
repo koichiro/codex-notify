@@ -12,7 +12,8 @@ module CodexNotify
 
     module_function
 
-    def main(argv = nil, stdin: $stdin, stderr: $stderr, stdout: $stdout)
+    def main(argv = nil, stdin: $stdin, stderr: $stderr, stdout: $stdout,
+             runner_factory: HookRunner.method(:new))
       args = HookConfig.parse_args(argv, stderr:)
 
       unless args.token && args.channel
@@ -23,7 +24,7 @@ module CodexNotify
       payload = parse_stdin(stdin)
       event = HookInputValidator.validate(event_name: args.event_name, payload:)
 
-      runner = HookRunner.new(
+      runner = runner_factory.call(
         token: args.token,
         channel: args.channel,
         user_name: args.user_name,

@@ -3,13 +3,17 @@
 require 'stringio'
 require 'tmpdir'
 require_relative 'test_helper'
+require_relative 'support/fake_slack_client'
 
 class CodexNotifyHookCLITest < Minitest::Test
+  include HookTestSupport
+
   HookCLI = CodexNotify::HookCLI
   HookRunner = CodexNotify::HookRunner
 
   def setup
     @env_backup = ENV.to_h
+    @client = FakeSlackClient.new
   end
 
   def teardown
@@ -21,7 +25,7 @@ class CodexNotifyHookCLITest < Minitest::Test
     ENV.delete('SLACK_CHANNEL')
 
     err = StringIO.new
-    exit_code = HookCLI.main(['--env-file', 'missing.env'], stdin: StringIO.new('{}'), stderr: err, stdout: StringIO.new)
+    exit_code = hook_cli_main(['--env-file', 'missing.env'], stdin: StringIO.new('{}'), stderr: err, stdout: StringIO.new)
 
     assert_equal 2, exit_code
     assert_includes err.string, 'need --token/--channel'
@@ -32,38 +36,25 @@ class CodexNotifyHookCLITest < Minitest::Test
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
       ENV['SLACK_CHANNEL__PROJECT_A'] = 'CPROJECT'
       state_file = dir.join('state.json')
-      posts = []
-      original_post = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => '1000.01' }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        error = StringIO.new
-        exit_code = HookCLI.main(
-          [
-            '--env-file', 'missing.env',
-            '--destination', 'project-a',
-            '--state-file', state_file.to_s,
-            '--event', 'UserPromptSubmit'
-          ],
-          stdin: StringIO.new(JSON.generate('session_id' => 'session-123', 'prompt' => 'hello')),
-          stderr: error,
-          stdout: StringIO.new
-        )
+      error = StringIO.new
+      exit_code = hook_cli_main(
+        [
+          '--env-file', 'missing.env',
+          '--destination', 'project-a',
+          '--state-file', state_file.to_s,
+          '--event', 'UserPromptSubmit'
+        ],
+        stdin: StringIO.new(JSON.generate('session_id' => 'session-123', 'prompt' => 'hello')),
+        stderr: error,
+        stdout: StringIO.new
+      )
 
-        assert_equal 2, exit_code
-        assert_includes error.string, 'destination must contain only'
-        assert_empty posts
-        refute state_file.exist?
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_post)
-        end
-      end
+      assert_equal 2, exit_code
+      assert_includes error.string, 'destination must contain only'
+      assert_empty posts
+      refute state_file.exist?
     end
   end
 
@@ -103,33 +94,20 @@ class CodexNotifyHookCLITest < Minitest::Test
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
       ENV['SLACK_CHANNEL'] = 'C123'
       state_file = dir.join('state.json')
-      posts = []
-      original_post = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => '1000.01' }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        error = StringIO.new
-        exit_code = HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new('x' * (HookCLI::MAX_STDIN_BYTES + 1)),
-          stderr: error,
-          stdout: StringIO.new
-        )
+      error = StringIO.new
+      exit_code = hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new('x' * (HookCLI::MAX_STDIN_BYTES + 1)),
+        stderr: error,
+        stdout: StringIO.new
+      )
 
-        assert_equal 2, exit_code
-        assert_includes error.string, 'maximum size'
-        assert_empty posts
-        refute state_file.exist?
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_post)
-        end
-      end
+      assert_equal 2, exit_code
+      assert_includes error.string, 'maximum size'
+      assert_empty posts
+      refute state_file.exist?
     end
   end
 
@@ -141,28 +119,15 @@ class CodexNotifyHookCLITest < Minitest::Test
       state_file = dir.join('state.json')
       payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'prompt' => 'hello' }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        2.times do
-          HookCLI.main(
-            ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
-            stdin: StringIO.new(JSON.generate(payload)),
-            stderr: StringIO.new,
-            stdout: StringIO.new
-          )
-        end
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
+      2.times do
+        hook_cli_main(
+          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+          stdin: StringIO.new(JSON.generate(payload)),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
       end
 
       root_posts = posts.select { |(_text, thread_ts)| thread_ts.nil? }
@@ -186,27 +151,14 @@ class CodexNotifyHookCLITest < Minitest::Test
         'prompt' => internal_overview_prompt('/tmp/app')
       }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate(payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       assert_empty posts
     end
@@ -223,27 +175,14 @@ class CodexNotifyHookCLITest < Minitest::Test
         'prompt' => internal_overview_prompt('/tmp/app')
       }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--mode', 'debug', '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate(payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--mode', 'debug', '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       assert_equal 1, posts.size
       assert_includes posts.first.first, '# Overview'
@@ -262,27 +201,14 @@ class CodexNotifyHookCLITest < Minitest::Test
         'prompt' => internal_ambient_policy_prompt
       }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate(payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       assert_empty posts
       assert JSON.parse(state_file.read).dig('suppressed_sessions', 'session-123')
@@ -302,27 +228,14 @@ class CodexNotifyHookCLITest < Minitest::Test
         'prompt' => internal_ambient_policy_prompt
       }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate(payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       state = JSON.parse(state_file.read)
       assert_empty posts
@@ -342,27 +255,14 @@ class CodexNotifyHookCLITest < Minitest::Test
         'prompt' => internal_ambient_policy_prompt
       }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--mode', 'debug', '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate(payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--mode', 'debug', '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       assert_equal 1, posts.size
       assert_includes posts.first.first, 'safety and compliance standards'
@@ -378,34 +278,21 @@ class CodexNotifyHookCLITest < Minitest::Test
       prompt_payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'prompt' => 'hello' }
       stop_payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'last_assistant_message' => 'done' }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate(prompt_payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate(prompt_payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'Stop'],
-          stdin: StringIO.new(JSON.generate(stop_payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'Stop'],
+        stdin: StringIO.new(JSON.generate(stop_payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       assert_equal 2, posts.size
       assert_includes posts.last.first, 'done'
@@ -427,27 +314,14 @@ class CodexNotifyHookCLITest < Minitest::Test
                                      }))
       stop_payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'last_assistant_message' => 'done' }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'Stop'],
-          stdin: StringIO.new(JSON.generate(stop_payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'Stop'],
+        stdin: StringIO.new(JSON.generate(stop_payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       assert_empty posts
     end
@@ -466,27 +340,14 @@ class CodexNotifyHookCLITest < Minitest::Test
         'last_assistant_message' => internal_ambient_policy_response
       }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'Stop'],
-          stdin: StringIO.new(JSON.generate(stop_payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'Stop'],
+        stdin: StringIO.new(JSON.generate(stop_payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       assert_empty posts
     end
@@ -500,27 +361,14 @@ class CodexNotifyHookCLITest < Minitest::Test
       state_file = dir.join('state.json')
       payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app' }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'SessionStart'],
-          stdin: StringIO.new(JSON.generate(payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'SessionStart'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       assert_empty posts
     end
@@ -535,7 +383,7 @@ class CodexNotifyHookCLITest < Minitest::Test
       state_file.write(JSON.generate({ 'threads' => { 'session-123' => '1000.01' } }))
       payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'source' => 'startup' }
 
-      HookCLI.main(
+      hook_cli_main(
         ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'SessionStart'],
         stdin: StringIO.new(JSON.generate(payload)),
         stderr: StringIO.new,
@@ -555,7 +403,7 @@ class CodexNotifyHookCLITest < Minitest::Test
       state_file.write(JSON.generate({ 'threads' => { 'session-123' => '1000.01' } }))
       payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'source' => 'clear' }
 
-      HookCLI.main(
+      hook_cli_main(
         ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'SessionStart'],
         stdin: StringIO.new(JSON.generate(payload)),
         stderr: StringIO.new,
@@ -575,7 +423,7 @@ class CodexNotifyHookCLITest < Minitest::Test
       state_file.write(JSON.generate({ 'threads' => { 'session-123' => '1000.01' } }))
       payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'source' => 'resume' }
 
-      HookCLI.main(
+      hook_cli_main(
         ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'SessionStart'],
         stdin: StringIO.new(JSON.generate(payload)),
         stderr: StringIO.new,
@@ -594,42 +442,32 @@ class CodexNotifyHookCLITest < Minitest::Test
       state_file = dir.join('state.json')
       session_payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app' }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          ts = thread_ts || (posts.count { |(_t, ts_value)| ts_value.nil? } == 1 ? '1000.01' : '2000.01')
-          { 'ok' => true, 'ts' => ts }
-        end
+      @client = FakeSlackClient.new do |_text, thread_ts|
+        root_count = @client.posts.count { |(_value, ts_value)| ts_value.nil? }
+        { 'ok' => true, 'ts' => (thread_ts || (root_count == 1 ? '1000.01' : '2000.01')) }
       end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate(session_payload.merge('prompt' => 'first prompt'))),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate(session_payload.merge('prompt' => 'first prompt'))),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate(session_payload.merge('prompt' => '---'))),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate(session_payload.merge('prompt' => '---'))),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate(session_payload.merge('prompt' => 'second prompt'))),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate(session_payload.merge('prompt' => 'second prompt'))),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       root_posts = posts.select { |(_text, thread_ts)| thread_ts.nil? }
       reply_posts = posts.select { |(_text, thread_ts)| !thread_ts.nil? }
@@ -651,33 +489,23 @@ class CodexNotifyHookCLITest < Minitest::Test
       state_file.write(JSON.generate({ 'threads' => { 'session-123' => 'stale-ts' } }))
       payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'prompt' => 'recovered prompt' }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          if thread_ts == 'stale-ts'
-            raise CodexNotify::SlackClient::Error.new('Slack API error', error_code: 'thread_not_found')
-          end
-
-          { 'ok' => true, 'ts' => (thread_ts || '2000.01') }
+      @client = FakeSlackClient.new(root_ts: '2000.01') do |_text, thread_ts|
+        if thread_ts == 'stale-ts'
+          raise CodexNotify::SlackClient::Error.new('Slack API error', error_code: 'thread_not_found')
         end
-      end
 
-      begin
-        exit_code = HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate(payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-
-        assert_equal 0, exit_code
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
+        { 'ok' => true, 'ts' => (thread_ts || '2000.01') }
       end
+      posts = @client.posts
+
+      exit_code = hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
+
+      assert_equal 0, exit_code
 
       root_posts = posts.select { |(_text, thread_ts)| thread_ts.nil? }
       reply_posts = posts.select { |(_text, thread_ts)| !thread_ts.nil? }
@@ -699,33 +527,23 @@ class CodexNotifyHookCLITest < Minitest::Test
       state_file.write(JSON.generate({ 'threads' => { 'session-123' => 'stale-ts' } }))
       payload = { 'session_id' => 'session-123', 'cwd' => '/tmp/app', 'last_assistant_message' => 'done' }
 
-      posts = []
-      original_new = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          if thread_ts == 'stale-ts'
-            raise CodexNotify::SlackClient::Error.new('Slack API error', error_code: 'thread_not_found')
-          end
-
-          { 'ok' => true, 'ts' => (thread_ts || '3000.01') }
+      @client = FakeSlackClient.new(root_ts: '3000.01') do |_text, thread_ts|
+        if thread_ts == 'stale-ts'
+          raise CodexNotify::SlackClient::Error.new('Slack API error', error_code: 'thread_not_found')
         end
-      end
 
-      begin
-        exit_code = HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'Stop'],
-          stdin: StringIO.new(JSON.generate(payload)),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-
-        assert_equal 0, exit_code
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_new)
-        end
+        { 'ok' => true, 'ts' => (thread_ts || '3000.01') }
       end
+      posts = @client.posts
+
+      exit_code = hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', state_file.to_s, '--event', 'Stop'],
+        stdin: StringIO.new(JSON.generate(payload)),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
+
+      assert_equal 0, exit_code
 
       root_posts = posts.select { |(_text, thread_ts)| thread_ts.nil? }
       reply_posts = posts.select { |(_text, thread_ts)| !thread_ts.nil? }
@@ -745,32 +563,19 @@ class CodexNotifyHookCLITest < Minitest::Test
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
       ENV['SLACK_CHANNEL'] = 'C123'
 
-      posts = []
-      original_post = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        {
-          'SessionStart' => { 'source' => 'startup' },
-          'PreToolUse' => { 'tool_name' => 'Bash', 'tool_input' => { 'command' => 'pwd' } },
-          'PostToolUse' => { 'tool_name' => 'Bash', 'tool_response' => { 'output' => '/tmp' } }
-        }.each do |event_name, extra_payload|
-          HookCLI.main(
-            ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', event_name],
-            stdin: StringIO.new(JSON.generate({ 'session_id' => 'session-123', 'cwd' => '/tmp/app' }.merge(extra_payload))),
-            stderr: StringIO.new,
-            stdout: StringIO.new
-          )
-        end
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_post)
-        end
+      {
+        'SessionStart' => { 'source' => 'startup' },
+        'PreToolUse' => { 'tool_name' => 'Bash', 'tool_input' => { 'command' => 'pwd' } },
+        'PostToolUse' => { 'tool_name' => 'Bash', 'tool_response' => { 'output' => '/tmp' } }
+      }.each do |event_name, extra_payload|
+        hook_cli_main(
+          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', event_name],
+          stdin: StringIO.new(JSON.generate({ 'session_id' => 'session-123', 'cwd' => '/tmp/app' }.merge(extra_payload))),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
       end
 
       assert_empty posts
@@ -782,32 +587,19 @@ class CodexNotifyHookCLITest < Minitest::Test
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
       ENV['SLACK_CHANNEL'] = 'C123'
 
-      posts = []
-      original_post = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        {
-          'SessionStart' => { 'source' => 'startup' },
-          'PreToolUse' => { 'tool_name' => 'Bash', 'tool_input' => { 'command' => 'pwd' } },
-          'PostToolUse' => { 'tool_name' => 'Bash', 'tool_response' => { 'output' => '/tmp' } }
-        }.each do |event_name, extra_payload|
-          HookCLI.main(
-            ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--mode', 'debug', '--event', event_name],
-            stdin: StringIO.new(JSON.generate({ 'session_id' => 'session-123', 'cwd' => '/tmp/app' }.merge(extra_payload))),
-            stderr: StringIO.new,
-            stdout: StringIO.new
-          )
-        end
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_post)
-        end
+      {
+        'SessionStart' => { 'source' => 'startup' },
+        'PreToolUse' => { 'tool_name' => 'Bash', 'tool_input' => { 'command' => 'pwd' } },
+        'PostToolUse' => { 'tool_name' => 'Bash', 'tool_response' => { 'output' => '/tmp' } }
+      }.each do |event_name, extra_payload|
+        hook_cli_main(
+          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--mode', 'debug', '--event', event_name],
+          stdin: StringIO.new(JSON.generate({ 'session_id' => 'session-123', 'cwd' => '/tmp/app' }.merge(extra_payload))),
+          stderr: StringIO.new,
+          stdout: StringIO.new
+        )
       end
 
       assert_equal 3, posts.size
@@ -824,38 +616,25 @@ class CodexNotifyHookCLITest < Minitest::Test
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
       ENV['SLACK_CHANNEL'] = 'C123'
 
-      posts = []
-      original_post = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |text, thread_ts: nil|
-          posts << [text, thread_ts]
-          { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-        end
-      end
+      posts = @client.posts
 
-      begin
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'UserPromptSubmit'],
-          stdin: StringIO.new(JSON.generate('session_id' => 'session-123', 'cwd' => '/tmp/app', 'prompt' => 'run tests')),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-        HookCLI.main(
-          ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'PermissionRequest'],
-          stdin: StringIO.new(JSON.generate(
-            'session_id' => 'session-123',
-            'cwd' => '/tmp/app',
-            'tool_name' => 'Bash',
-            'tool_input' => { 'description' => 'Allow network access?' }
-          )),
-          stderr: StringIO.new,
-          stdout: StringIO.new
-        )
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_post)
-        end
-      end
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'UserPromptSubmit'],
+        stdin: StringIO.new(JSON.generate('session_id' => 'session-123', 'cwd' => '/tmp/app', 'prompt' => 'run tests')),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
+      hook_cli_main(
+        ['--env-file', 'missing.env', '--state-file', dir.join('state.json').to_s, '--event', 'PermissionRequest'],
+        stdin: StringIO.new(JSON.generate(
+          'session_id' => 'session-123',
+          'cwd' => '/tmp/app',
+          'tool_name' => 'Bash',
+          'tool_input' => { 'description' => 'Allow network access?' }
+        )),
+        stderr: StringIO.new,
+        stdout: StringIO.new
+      )
 
       assert_equal 2, posts.size
       assert_includes posts.last.first, 'approval required: Bash'
@@ -866,18 +645,14 @@ class CodexNotifyHookCLITest < Minitest::Test
 
   private
 
+  def hook_cli_main(*args, **options)
+    HookCLI.main(*args, **options, runner_factory: hook_runner_factory(client: @client))
+  end
+
   def with_tmpdir
     Dir.mktmpdir do |dir|
       yield Pathname(dir)
     end
-  end
-
-  def with_silenced_warnings
-    original_verbose = $VERBOSE
-    $VERBOSE = nil
-    yield
-  ensure
-    $VERBOSE = original_verbose
   end
 
   def internal_overview_prompt(project_path)

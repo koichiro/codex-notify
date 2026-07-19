@@ -3,20 +3,10 @@
 require 'json'
 require 'tmpdir'
 require_relative 'test_helper'
+require_relative 'support/fake_slack_client'
 
 class HookThreadPublisherTest < Minitest::Test
-  FakeClient = Struct.new(:posts, :handler) do
-    def initialize(&handler)
-      super([], handler)
-    end
-
-    def post(text, thread_ts: nil)
-      posts << [text, thread_ts]
-      return handler.call(text, thread_ts) if handler
-
-      { 'ok' => true, 'ts' => (thread_ts || '1000.01') }
-    end
-  end
+  include HookTestSupport
 
   def test_ensure_thread_creates_only_one_session_root
     with_publisher do |publisher, client, store|
@@ -72,7 +62,7 @@ class HookThreadPublisherTest < Minitest::Test
 
   def test_publish_root_or_reply_recovers_all_stale_thread_errors_without_duplicate_content
     CodexNotify::HookThreadPublisher::STALE_THREAD_ERROR_CODES.each do |error_code|
-      client = FakeClient.new do |_text, thread_ts|
+      client = FakeSlackClient.new do |_text, thread_ts|
         if thread_ts == 'stale-ts'
           raise CodexNotify::SlackClient::Error.new('stale thread', error_code:)
         end
@@ -91,7 +81,7 @@ class HookThreadPublisherTest < Minitest::Test
   end
 
   def test_publish_reply_recreates_a_stale_thread_before_replaying_the_reply
-    client = FakeClient.new do |_text, thread_ts|
+    client = FakeSlackClient.new do |_text, thread_ts|
       if thread_ts == 'stale-ts'
         raise CodexNotify::SlackClient::Error.new('stale thread', error_code: 'thread_not_found')
       end
@@ -118,7 +108,7 @@ class HookThreadPublisherTest < Minitest::Test
   end
 
   def test_publish_reply_does_not_replay_without_a_recovery_root
-    client = FakeClient.new do |_text, thread_ts|
+    client = FakeSlackClient.new do |_text, thread_ts|
       raise CodexNotify::SlackClient::Error.new('stale thread', error_code: 'invalid_ts') if thread_ts == 'stale-ts'
 
       { 'ok' => true, 'ts' => 'unused' }
@@ -138,7 +128,7 @@ class HookThreadPublisherTest < Minitest::Test
   end
 
   def test_non_stale_slack_errors_are_not_retried
-    client = FakeClient.new do |_text, _thread_ts|
+    client = FakeSlackClient.new do |_text, _thread_ts|
       raise CodexNotify::SlackClient::Error.new('rate limited', error_code: 'ratelimited')
     end
     value = formatted_message('prompt')
@@ -155,7 +145,7 @@ class HookThreadPublisherTest < Minitest::Test
   end
 
   def test_stale_error_while_creating_a_root_is_not_retried
-    client = FakeClient.new do |_text, _thread_ts|
+    client = FakeSlackClient.new do |_text, _thread_ts|
       raise CodexNotify::SlackClient::Error.new('invalid root', error_code: 'invalid_ts')
     end
     value = formatted_message('first prompt')
@@ -219,7 +209,7 @@ class HookThreadPublisherTest < Minitest::Test
     CodexNotify::MessageFormatter.chunks(value).to_a.fetch(0)
   end
 
-  def with_publisher(client: FakeClient.new, initial_thread_ts: nil)
+  def with_publisher(client: FakeSlackClient.new, initial_thread_ts: nil)
     Dir.mktmpdir do |dir|
       store = CodexNotify::HookStore.new(Pathname(dir).join('state.json'))
       store.save_thread_ts('session-1', initial_thread_ts) if initial_thread_ts

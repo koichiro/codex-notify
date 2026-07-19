@@ -3,8 +3,11 @@
 require 'stringio'
 require 'tmpdir'
 require_relative 'test_helper'
+require_relative 'support/fake_slack_client'
 
 class CodexNotifyHookInputValidationTest < Minitest::Test
+  include HookTestSupport
+
   HookCLI = CodexNotify::HookCLI
   HookInputError = CodexNotify::HookInputError
   HookInputValidator = CodexNotify::HookInputValidator
@@ -317,24 +320,15 @@ class CodexNotifyHookInputValidationTest < Minitest::Test
   def test_runtime_error_uses_exit_code_one
     with_tmpdir do |dir|
       error = StringIO.new
-      original_post = CodexNotify::SlackClient.instance_method(:post)
-      with_silenced_warnings do
-        CodexNotify::SlackClient.send(:define_method, :post) do |_text, thread_ts: nil|
-          raise "Slack failed for #{thread_ts || 'root'}"
-        end
+      client = FakeSlackClient.new do |_text, thread_ts|
+        raise "Slack failed for #{thread_ts || 'root'}"
       end
 
-      begin
-        payload = { 'session_id' => 'session-1', 'prompt' => 'hello' }
-        exit_code = invoke(JSON.generate(payload), dir:, event: 'UserPromptSubmit', stderr: error)
+      payload = { 'session_id' => 'session-1', 'prompt' => 'hello' }
+      exit_code = invoke(JSON.generate(payload), dir:, event: 'UserPromptSubmit', stderr: error, client:)
 
-        assert_equal 1, exit_code
-        assert_includes error.string, 'ERROR: RuntimeError: Slack failed for root'
-      ensure
-        with_silenced_warnings do
-          CodexNotify::SlackClient.send(:define_method, :post, original_post)
-        end
-      end
+      assert_equal 1, exit_code
+      assert_includes error.string, 'ERROR: RuntimeError: Slack failed for root'
     end
   end
 
@@ -347,7 +341,7 @@ class CodexNotifyHookInputValidationTest < Minitest::Test
     )
   end
 
-  def invoke(raw, dir:, event: nil, stderr: StringIO.new)
+  def invoke(raw, dir:, event: nil, stderr: StringIO.new, client: FakeSlackClient.new)
     previous_token = ENV['SLACK_BOT_TOKEN']
     ENV['SLACK_BOT_TOKEN'] = 'xoxb-test-token'
     argv = [
@@ -356,7 +350,13 @@ class CodexNotifyHookInputValidationTest < Minitest::Test
       '--state-file', dir.join('state.json').to_s
     ]
     argv.concat(['--event', event]) if event
-    HookCLI.main(argv, stdin: StringIO.new(raw), stderr:, stdout: StringIO.new)
+    HookCLI.main(
+      argv,
+      stdin: StringIO.new(raw),
+      stderr:,
+      stdout: StringIO.new,
+      runner_factory: hook_runner_factory(client:)
+    )
   ensure
     previous_token.nil? ? ENV.delete('SLACK_BOT_TOKEN') : ENV['SLACK_BOT_TOKEN'] = previous_token
   end
@@ -365,14 +365,6 @@ class CodexNotifyHookInputValidationTest < Minitest::Test
     refute dir.join('state.json').exist?
     refute dir.join('state.json.lock').exist?
     refute dir.join('state.json.locks').exist?
-  end
-
-  def with_silenced_warnings
-    original_verbose = $VERBOSE
-    $VERBOSE = nil
-    yield
-  ensure
-    $VERBOSE = original_verbose
   end
 
   def with_tmpdir
