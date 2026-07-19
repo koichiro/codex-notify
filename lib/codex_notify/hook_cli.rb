@@ -5,6 +5,7 @@ require_relative 'hook_config'
 require_relative 'hook_input_validator'
 require_relative 'hook_runner'
 require_relative 'message_formatter'
+require_relative 'outbox_commands'
 
 module CodexNotify
   module HookCLI
@@ -15,6 +16,19 @@ module CodexNotify
     def main(argv = nil, stdin: $stdin, stderr: $stderr, stdout: $stdout,
              runner_factory: HookRunner.method(:new))
       args = HookConfig.parse_args(argv, stderr:)
+
+      if args.outbox_action
+        return OutboxCommands.run(
+          action: args.outbox_action,
+          id: args.outbox_id,
+          outbox_dir: args.outbox_dir,
+          token: args.token,
+          channel: args.channel,
+          state_file: args.state_file,
+          stdout:,
+          stderr:
+        )
+      end
 
       unless args.token && args.channel
         stderr.puts('ERROR: need --token/--channel or env SLACK_BOT_TOKEN / SLACK_CHANNEL')
@@ -30,10 +44,13 @@ module CodexNotify
         user_name: args.user_name,
         title: args.title,
         state_file: args.state_file,
+        outbox_dir: args.outbox_dir,
         mode: args.mode,
         stdout: stdout
       )
-      runner.run(event:)
+      code = runner.run(event:)
+      stderr.puts('ERROR: Slack delivery requires outbox review; run --outbox-status') if code == 1
+      code
     rescue Interrupt
       0
     rescue HookInputError => e

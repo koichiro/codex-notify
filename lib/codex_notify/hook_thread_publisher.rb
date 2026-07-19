@@ -2,17 +2,23 @@
 
 require_relative 'message_formatter'
 require_relative 'slack_client'
+require_relative 'durable_slack_publisher'
 
 module CodexNotify
   class HookThreadPublisher
     STALE_THREAD_ERROR_CODES = %w[thread_not_found message_not_found invalid_ts].freeze
 
-    def initialize(client:, store:)
+    def initialize(client:, store:, outbox: nil, channel: nil)
       @client = client
       @store = store
+      @durable = DurableSlackPublisher.new(client:, store:, outbox:, channel:) if outbox
     end
 
+    attr_reader :client
+
     def ensure_thread(session_id:, root_message:)
+      return @durable.ensure_thread(key: session_id, root_message:) if @durable
+
       thread_ts = thread_for(session_id)
       return thread_ts if thread_ts
 
@@ -20,6 +26,8 @@ module CodexNotify
     end
 
     def publish_root_or_reply(session_id:, message:)
+      return @durable.publish_root_or_reply(key: session_id, message:) if @durable
+
       thread_ts = thread_for(session_id)
       return create_thread(session_id:, root_message: message) unless thread_ts
 
@@ -35,6 +43,10 @@ module CodexNotify
     end
 
     def publish_reply(session_id:, message:, recovery_root_message:)
+      if @durable
+        return @durable.publish_reply(key: session_id, message:, recovery_root_message:)
+      end
+
       thread_ts = thread_for(session_id)
       return unless thread_ts
 
@@ -54,7 +66,13 @@ module CodexNotify
     end
 
     def reset_thread(session_id:)
+      return @durable.reset(key: session_id) if @durable
+
       @store.clear_thread(session_id)
+    end
+
+    def drain
+      @durable&.drain
     end
 
     private

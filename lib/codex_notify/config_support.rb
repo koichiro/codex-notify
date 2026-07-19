@@ -56,6 +56,14 @@ module CodexNotify
       parser.on('--channel CHANNEL') { |value| options.channel = value }
       parser.on('--user-name NAME') { |value| options.user_name = value }
       parser.on('--title TITLE') { |value| options.title = value }
+      if options.respond_to?(:outbox_action=)
+        parser.on('--outbox-status') { options.outbox_action = :status }
+        parser.on('--drain-outbox') { options.outbox_action = :drain }
+        parser.on('--retry-outbox ID') do |value|
+          options.outbox_action = :retry
+          options.outbox_id = value
+        end
+      end
     end
 
     def apply_common_config(options, stderr: $stderr)

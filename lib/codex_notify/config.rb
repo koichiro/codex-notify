@@ -10,6 +10,7 @@ module CodexNotify
 
     DEFAULT_ENV_PATH = ConfigSupport::DEFAULT_ENV_PATH
     DEFAULT_SESSIONS_DIR = Pathname(File.expand_path('~/.codex/sessions'))
+    DEFAULT_OUTBOX_DIR = Pathname(File.expand_path('~/.codex-notify/outbox'))
 
     Args = Struct.new(
       :env_file,
@@ -24,6 +25,9 @@ module CodexNotify
       :session_file,
       :poll_sec,
       :once,
+      :outbox_dir,
+      :outbox_action,
+      :outbox_id,
       :token_from_cli,
       keyword_init: true
     )
@@ -44,6 +48,9 @@ module CodexNotify
         session_file: nil,
         poll_sec: 1.0,
         once: false,
+        outbox_dir: nil,
+        outbox_action: nil,
+        outbox_id: nil,
         token_from_cli: false
       )
 
@@ -57,6 +64,7 @@ module CodexNotify
         opts.on('--session-file PATH') { |v| options.session_file = v }
         opts.on('--poll-sec FLOAT', Float) { |v| options.poll_sec = v }
         opts.on('--once') { options.once = true }
+        opts.on('--outbox-dir PATH') { |v| options.outbox_dir = v }
       end
 
       [parser, options]
@@ -66,6 +74,7 @@ module CodexNotify
       parser, options = build_parser
       parser.parse!(argv || [])
       apply_common_config(options, stderr:)
+      options.outbox_dir ||= ENV['CODEX_NOTIFY_OUTBOX_DIR'] || DEFAULT_OUTBOX_DIR.to_s
       options.prompt ||= ENV['CODEX_PROMPT']
       options
     end

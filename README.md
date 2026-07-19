@@ -80,6 +80,8 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
 - Shared:
   - long payloads are split with titles and formatting overhead included in the Slack-safe limit
   - continuation chunks have an explicit `(cont.)` title; block-formatted chunks have balanced code fences
+  - outbound messages are persisted to a local outbox before the first Slack request
+  - HTTP 429 responses honor `Retry-After`; transient failures resume on a later invocation
   - `.env` loading via `dotenv`
 
 ## Project Layout
@@ -129,6 +131,7 @@ CODEX_NOTIFY_USER_NAME=user
 CODEX_PROMPT=
 CODEX_NOTIFY_TITLE=
 CODEX_NOTIFY_MODE=normal
+# CODEX_NOTIFY_OUTBOX_DIR=/home/codex-notify/state/outbox
 ```
 
 Variables:
@@ -143,6 +146,7 @@ Variables:
 - `CODEX_PROMPT`: Optional initial prompt to post as a user message when monitoring begins
 - `CODEX_NOTIFY_TITLE`: Optional title used for the root Slack message or hook session thread
 - `CODEX_NOTIFY_MODE`: Hook notification mode, `normal` (default) or `debug`
+- `CODEX_NOTIFY_OUTBOX_DIR`: optional private directory for durable pending Slack deliveries
 
 CLI flags override environment variables. Passing the token with `--token` is deprecated because command-line arguments can be exposed in process listings and shell history. Use `SLACK_BOT_TOKEN` from the environment or a permission-restricted env file instead. On systems with Unix permissions, codex-notify warns when a loaded env file is readable by group or other users.
 
@@ -341,6 +345,10 @@ Useful options:
 - `--mode normal|debug`: choose normal notifications or detailed debug notifications
 - `--env-file .env.local`: load a different env file
 - `--destination PROJECT_A`: select a trusted named Slack destination
+- `--outbox-dir PATH`: override the durable delivery spool; repository `.env` files cannot set this in Hook mode
+- `--outbox-status`: list delivery IDs and sanitized queue state without printing message text
+- `--drain-outbox`: retry eligible queued deliveries without reading a Hook payload
+- `--retry-outbox ID`: move one failed or acknowledgement-ambiguous delivery back to pending
 
 `--token` remains available for compatibility but is deprecated. Prefer `SLACK_BOT_TOKEN` in a `0600` env file.
 
@@ -403,6 +411,48 @@ To migrate a repository, move its token and channel into a named profile in the 
 
 Before each Slack API request, codex-notify applies best-effort redaction to both log-tail and Hook messages. It masks common secret-bearing keys (such as token, password, secret, API key, and Authorization), explicit secret CLI flags, and several well-known token formats. Redaction cannot recognize every arbitrary or encoded secret, so it is an additional safeguard rather than a substitute for limiting Hook types, avoiding sensitive debug sessions, and restricting the Slack destination.
 
+### Durable Slack delivery
+
+Both modes format, chunk, and redact each logical notification before atomically
+placing it in a private local outbox. The Slack transport uses 5-second connect,
+10-second write, and 20-second read timeouts. A normal invocation uses a
+10-second retry/sleep budget while draining eligible work; an in-progress HTTP
+attempt remains governed by its separate timeouts. HTTP `429` waits use Slack's
+`Retry-After` value; other definite transient failures use bounded exponential
+backoff. Hook invocations remain quiet and return `0` after a notification is
+durably queued, even when delivery is deferred to a later invocation.
+
+Confirmed root timestamps and chunk progress are persisted, so a later process
+continues from the first unconfirmed chunk. If a connection fails after a
+request may have reached Slack, the acknowledgement is ambiguous: codex-notify
+does not retry it again in the same invocation, permits at most three automatic
+attempts across invocations, and then moves it to `needs-review`. Exactly-once
+delivery is not guaranteed; one duplicate remains possible for each ambiguous
+attempt. Definite failures are retried until delivered or manually handled.
+
+The outbox never stores Slack tokens, Authorization headers, raw Hook payloads,
+or raw JSONL events. It stores the final best-effort-redacted notification text,
+which may still be sensitive. Its directories and files are created with modes
+`0700` and `0600`. The queue is bounded to 10,000 non-delivered jobs and 64 MiB;
+when full, it rejects new work with exit code `1` instead of evicting an existing
+notification.
+
+Hook mode defaults to `<state-file>.outbox`; log-tail mode defaults to
+`~/.codex-notify/outbox`. Inspect or recover a queue with the same credentials
+and path used by the normal command:
+
+```bash
+./bin/codex-notify-hook --outbox-status
+./bin/codex-notify-hook --drain-outbox
+./bin/codex-notify-hook --retry-outbox DELIVERY_ID
+```
+
+Status output contains IDs, timestamps, statuses, and sanitized error codes,
+but never notification text. A failed or `needs-review` job blocks newer work
+for the same session until it is retried; other sessions may continue. Session
+reset events advance a local generation and cancel older queued work so it
+cannot attach to the new Slack thread.
+
 ### Hook input contract
 
 Hook input must be a non-empty JSON object. The event name may be supplied with
@@ -437,7 +487,7 @@ ignored for forward compatibility.
 
 Hook command exit codes are:
 
-- `0`: the event was handled, including intentional notification suppression
+- `0`: the event was handled, suppressed intentionally, delivered, or durably queued for retry
 - `1`: a runtime failure occurred, such as a Slack or state-file error
 - `2`: configuration or Hook input was invalid
 

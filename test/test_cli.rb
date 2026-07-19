@@ -80,7 +80,10 @@ class CodexNotifyCLITest < Minitest::Test
         end
       end
       begin
-        CLI.main(['--env-file', 'missing.env', '--session-file', session_file.to_s], stderr: StringIO.new)
+        CLI.main(
+          ['--env-file', 'missing.env', '--session-file', session_file.to_s, '--outbox-dir', dir.join('outbox').to_s],
+          stderr: StringIO.new
+        )
       ensure
         with_silenced_warnings do
           CLI.singleton_class.send(:define_method, :slack_post, original)

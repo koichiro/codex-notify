@@ -5,6 +5,7 @@ require_relative 'hook_store'
 require_relative 'hook_formatter'
 require_relative 'hook_thread_publisher'
 require_relative 'slack_client'
+require_relative 'slack_outbox'
 
 module CodexNotify
   class HookRunner
@@ -36,10 +37,11 @@ module CodexNotify
     ].freeze
 
     def initialize(token:, channel:, user_name:, title:, state_file:, mode: HookConfig::DEFAULT_MODE, stdout: $stdout,
-                   client: nil, store: nil)
+                   client: nil, store: nil, outbox: nil, outbox_dir: nil)
       @store = store || HookStore.new(state_file)
       client ||= SlackClient.new(token:, channel:)
-      @publisher = HookThreadPublisher.new(client:, store: @store)
+      outbox ||= SlackOutbox.new(outbox_dir || "#{state_file}.outbox")
+      @publisher = HookThreadPublisher.new(client:, store: @store, outbox:, channel:)
       @user_name = user_name
       @title = title
       @mode = mode
@@ -64,7 +66,8 @@ module CodexNotify
         end
       end
 
-      0
+      result = @publisher.drain
+      result&.failed&.any? || result&.needs_review&.any? ? 1 : 0
     end
 
     private
