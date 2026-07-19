@@ -3,7 +3,6 @@
 require 'json'
 require 'pathname'
 require_relative 'hook_config'
-require_relative 'hook_input_validator'
 require_relative 'hook_store'
 require_relative 'hook_formatter'
 require_relative 'message_formatter'
@@ -47,23 +46,21 @@ module CodexNotify
       @stdout = stdout
     end
 
-    def run(event_name:, payload:)
-      normalized_event, session_id = HookInputValidator.validate(event_name:, payload:)
-
-      @store.with_session_lock(session_id) do
-        case normalized_event
+    def run(event:)
+      @store.with_session_lock(event.session_id) do
+        case event.name
         when 'SessionStart'
-          handle_session_start(payload)
+          handle_session_start(event)
         when 'UserPromptSubmit'
-          handle_user_prompt_submit(payload)
+          handle_user_prompt_submit(event)
         when 'PreToolUse'
-          handle_pre_tool_use(payload)
+          handle_pre_tool_use(event)
         when 'PostToolUse'
-          handle_post_tool_use(payload)
+          handle_post_tool_use(event)
         when 'PermissionRequest'
-          handle_permission_request(payload)
+          handle_permission_request(event)
         when 'Stop'
-          handle_stop(payload)
+          handle_stop(event)
         end
       end
 
@@ -72,28 +69,17 @@ module CodexNotify
 
     private
 
-    def session_id_from(payload)
-      value = payload['session_id'] || payload['sessionId'] || payload.dig('session', 'id')
-      value.strip
-    end
-
-    def cwd_from(payload)
-      payload['cwd'] || Dir.pwd
-    end
-
     def thread_for(session_id)
       @store.thread_ts_for(session_id)
     end
 
-    def session_root_text(payload)
-      session_id = session_id_from(payload)
-      cwd = cwd_from(payload)
-      title = @title || "Codex session: #{File.basename(cwd)}"
-      HookFormatter.session_root_text(title:, cwd:, session_id:, user_name: @user_name)
+    def session_root_text(event)
+      title = @title || "Codex session: #{File.basename(event.cwd)}"
+      HookFormatter.session_root_text(event, title:, user_name: @user_name)
     end
 
-    def ensure_session_thread(payload, root_text: nil)
-      session_id = session_id_from(payload)
+    def ensure_session_thread(event, root_text: nil)
+      session_id = event.session_id
       thread_ts = thread_for(session_id)
       return [session_id, thread_ts, false] if thread_ts
 
@@ -113,8 +99,8 @@ module CodexNotify
       %w[thread_not_found message_not_found invalid_ts].include?(error.error_code)
     end
 
-    def post_with_thread_recovery(payload, text, fallback_root_text:)
-      session_id = session_id_from(payload)
+    def post_with_thread_recovery(event, text, fallback_root_text:)
+      session_id = event.session_id
       thread_ts = thread_for(session_id)
       return if thread_ts.nil?
 
@@ -123,7 +109,7 @@ module CodexNotify
       raise unless stale_thread_error?(e)
 
       @store.clear_thread(session_id)
-      _session_id, recovered_thread_ts, = ensure_session_thread(payload, root_text: fallback_root_text)
+      _session_id, recovered_thread_ts, = ensure_session_thread(event, root_text: fallback_root_text)
       return if recovered_thread_ts.nil?
       return if fallback_root_text == text
 
@@ -134,18 +120,18 @@ module CodexNotify
       parts.each { |part| @client.post(part, thread_ts:) }
     end
 
-    def handle_session_start(payload)
-      session_id = session_id_from(payload)
-      if reset_thread_on_session_start?(payload)
+    def handle_session_start(event)
+      if reset_thread_on_session_start?(event)
+        session_id = event.session_id
         @store.clear_thread(session_id)
         @store.clear_suppressed_session(session_id)
       end
-      ensure_session_thread(payload, root_text: session_root_text(payload)) if debug?
+      ensure_session_thread(event, root_text: session_root_text(event)) if debug?
     end
 
-    def handle_user_prompt_submit(payload)
-      prompt = payload['prompt'] || payload.dig('payload', 'prompt')
-      session_id = session_id_from(payload)
+    def handle_user_prompt_submit(event)
+      prompt = event.prompt
+      session_id = event.session_id
       if normal? && internal_ambient_suggestions_prompt?(prompt)
         @store.suppress_session(session_id, 'internal_ambient_suggestions')
         return
@@ -158,52 +144,52 @@ module CodexNotify
         return
       end
 
-      prompt_text = HookFormatter.prompt_text(user_name: @user_name, prompt: prompt)
-      _session_id, thread_ts, created = ensure_session_thread(payload, root_text: prompt_text)
+      prompt_text = HookFormatter.prompt_text(event, user_name: @user_name)
+      _session_id, thread_ts, created = ensure_session_thread(event, root_text: prompt_text)
       return if thread_ts.nil?
       return if created
 
-      post_with_thread_recovery(payload, prompt_text, fallback_root_text: prompt_text)
+      post_with_thread_recovery(event, prompt_text, fallback_root_text: prompt_text)
     end
 
-    def handle_pre_tool_use(payload)
+    def handle_pre_tool_use(event)
       return unless debug?
 
-      _session_id, thread_ts, = ensure_session_thread(payload)
+      _session_id, thread_ts, = ensure_session_thread(event)
       return if thread_ts.nil?
 
-      post_with_thread_recovery(payload, HookFormatter.format_pre_tool(payload), fallback_root_text: session_root_text(payload))
+      post_with_thread_recovery(event, HookFormatter.format_pre_tool(event), fallback_root_text: session_root_text(event))
     end
 
-    def handle_post_tool_use(payload)
+    def handle_post_tool_use(event)
       return unless debug?
 
-      _session_id, thread_ts, = ensure_session_thread(payload)
+      _session_id, thread_ts, = ensure_session_thread(event)
       return if thread_ts.nil?
 
-      post_with_thread_recovery(payload, HookFormatter.format_post_tool(payload), fallback_root_text: session_root_text(payload))
+      post_with_thread_recovery(event, HookFormatter.format_post_tool(event), fallback_root_text: session_root_text(event))
     end
 
-    def handle_permission_request(payload)
-      text = HookFormatter.format_permission_request(payload)
-      _session_id, thread_ts, created = ensure_session_thread(payload, root_text: text)
+    def handle_permission_request(event)
+      text = HookFormatter.format_permission_request(event)
+      _session_id, thread_ts, created = ensure_session_thread(event, root_text: text)
       return if thread_ts.nil? || created
 
-      post_with_thread_recovery(payload, text, fallback_root_text: text)
+      post_with_thread_recovery(event, text, fallback_root_text: text)
     end
 
-    def handle_stop(payload)
-      session_id = session_id_from(payload)
+    def handle_stop(event)
+      session_id = event.session_id
       return if normal? && @store.suppressed_session?(session_id)
 
-      message = payload['last_assistant_message'] || payload.dig('payload', 'last_assistant_message')
+      message = event.assistant_message
       return if normal? && internal_ambient_suggestions_response?(message)
 
-      _session_id, thread_ts, = ensure_session_thread(payload)
+      _session_id, thread_ts, = ensure_session_thread(event)
       return if thread_ts.nil?
 
       unless message.nil? || message.to_s.empty?
-        post_with_thread_recovery(payload, HookFormatter.assistant_text(message), fallback_root_text: session_root_text(payload))
+        post_with_thread_recovery(event, HookFormatter.assistant_text(event), fallback_root_text: session_root_text(event))
       end
     end
 
@@ -211,9 +197,8 @@ module CodexNotify
       prompt.to_s.strip == RESET_THREAD_PROMPT
     end
 
-    def reset_thread_on_session_start?(payload)
-      source = payload['source'] || payload.dig('payload', 'source')
-      SESSION_RESET_SOURCES.include?(source.to_s)
+    def reset_thread_on_session_start?(event)
+      SESSION_RESET_SOURCES.include?(event.source.to_s)
     end
 
     def internal_ambient_suggestions_prompt?(prompt)

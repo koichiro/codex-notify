@@ -21,6 +21,7 @@ module CodexNotify
       end
 
       payload = parse_stdin(stdin)
+      event = HookInputValidator.validate(event_name: args.event_name, payload:)
 
       runner = HookRunner.new(
         token: args.token,
@@ -31,7 +32,7 @@ module CodexNotify
         mode: args.mode,
         stdout: stdout
       )
-      runner.run(event_name: args.event_name, payload:)
+      runner.run(event:)
     rescue Interrupt
       0
     rescue HookInputError => e
