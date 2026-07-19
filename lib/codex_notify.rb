@@ -16,6 +16,7 @@ require_relative 'codex_notify/hook_event'
 require_relative 'codex_notify/hook_input_validator'
 require_relative 'codex_notify/hook_store'
 require_relative 'codex_notify/hook_formatter'
+require_relative 'codex_notify/hook_thread_publisher'
 require_relative 'codex_notify/hook_runner'
 require_relative 'codex_notify/hook_cli'
 
