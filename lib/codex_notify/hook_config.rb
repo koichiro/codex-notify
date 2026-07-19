@@ -72,7 +72,7 @@ module CodexNotify
     def parse_args(argv = nil, stderr: $stderr)
       parser, options = build_parser
       parser.parse!(argv || [])
-      SecretProtection.warn_deprecated_cli_token(stderr:) if options.token_from_cli
+      ConfigDiagnostics.warn_deprecated_cli_token(stderr:) if options.token_from_cli
 
       sources = EnvSourceLoader.new(app_root:, stderr:).load(
         path: options.env_file,
@@ -116,7 +116,7 @@ module CodexNotify
       return if used.empty?
 
       source = [resolution.token_source, resolution.channel_source].find { |candidate| candidate&.kind == :repository }
-      SecretProtection.warn_deprecated_repository_credentials(source.path, used, stderr:)
+      ConfigDiagnostics.warn_deprecated_repository_credentials(source.path, used, stderr:)
     end
 
     def apply_presentation(options, sources, policy:)
@@ -145,7 +145,7 @@ module CodexNotify
         next if ignored.empty?
 
         reason = policy == 'restricted' ? policy : nil
-        SecretProtection.warn_ignored_repository_credentials(source.path, ignored.sort, policy: reason, stderr:)
+        ConfigDiagnostics.warn_ignored_repository_credentials(source.path, ignored.sort, policy: reason, stderr:)
       end
     end
 

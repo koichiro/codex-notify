@@ -3,7 +3,7 @@
 require 'dotenv'
 require 'etc'
 require 'pathname'
-require_relative 'secret_protection'
+require_relative 'config_diagnostics'
 
 module CodexNotify
   module ConfigSupport
@@ -25,7 +25,7 @@ module CodexNotify
       env_paths = resolve_env_paths(path)
       return if env_paths.empty?
 
-      env_paths.each { |env_path| SecretProtection.warn_if_env_file_insecure(env_path, stderr:) }
+      env_paths.each { |env_path| ConfigDiagnostics.warn_if_env_file_insecure(env_path, stderr:) }
       loader = override ? Dotenv.method(:overload) : Dotenv.method(:load)
       loader.call(*env_paths.map(&:to_s))
     end
@@ -59,7 +59,7 @@ module CodexNotify
     end
 
     def apply_common_config(options, stderr: $stderr)
-      SecretProtection.warn_deprecated_cli_token(stderr:) if options.token_from_cli
+      ConfigDiagnostics.warn_deprecated_cli_token(stderr:) if options.token_from_cli
       load_env_file(options.env_file, stderr:)
       options.token ||= ENV['SLACK_BOT_TOKEN']
       options.channel ||= ENV['SLACK_CHANNEL']
