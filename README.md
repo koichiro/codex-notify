@@ -189,6 +189,17 @@ bin/codex-notify --migrate-config \
   --config /path/to/config.yml
 ```
 
+Validate the same migration before creating any file or directory:
+
+```bash
+bin/codex-notify --migrate-config --dry-run
+```
+
+Dry-run performs the same input, policy, destination-name, profile-completeness,
+and output-collision checks. It reports only whether a default destination and
+policy are present and the number of named destinations; it never prints tokens,
+channels, or destination names.
+
 The migration copies only `CODEX_NOTIFY_ENV_POLICY`, the default Slack token
 and channel, and named destination tokens and channels. Routing and presentation
 settings remain in the env file. Destination names are normalized and every
@@ -392,6 +403,7 @@ Useful options:
 - `--mode normal|debug`: choose normal notifications or detailed debug notifications
 - `--config PATH`: layer an explicit trusted YAML file above the default XDG config
 - `--migrate-config`: create trusted YAML from the project-root or explicitly selected env file
+- `--dry-run`: validate `--migrate-config` without creating files or directories
 - `--env-file .env.local`: load a different env file
 - `--destination PROJECT_A`: select a trusted named Slack destination
 - `--outbox-dir PATH`: override the durable delivery spool; repository `.env` files cannot set this in Hook mode

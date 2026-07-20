@@ -86,6 +86,30 @@ class CodexNotifyConfigMigratorTest < Minitest::Test
     end
   end
 
+  def test_dry_run_validates_without_creating_files_or_directories
+    with_tmpdir do |dir|
+      source = write_env(
+        dir.join('legacy.env'),
+        "CODEX_NOTIFY_ENV_POLICY=restricted\nSLACK_BOT_TOKEN=xoxb-sensitive\n" \
+        "SLACK_CHANNEL=CSECRET\nSLACK_CHANNEL__PROJECT_A=CPROJECT\n"
+      )
+      target = dir.join('not-created/config.yml')
+      stdout = StringIO.new
+      migrator = ConfigMigrator.new(app_root: dir, stdout:, stderr: StringIO.new)
+
+      assert_equal 0, migrator.run(env_path: source, env_explicit: true, config_path: target, dry_run: true)
+
+      refute target.exist?
+      refute target.dirname.exist?
+      assert_includes stdout.string, 'Migration check passed'
+      assert_includes stdout.string, '1 named destination(s)'
+      assert_includes stdout.string, 'No files were created or modified'
+      refute_includes stdout.string, 'xoxb-sensitive'
+      refute_includes stdout.string, 'CSECRET'
+      refute_includes stdout.string, 'CPROJECT'
+    end
+  end
+
   def test_refuses_to_overwrite_an_existing_config
     with_tmpdir do |dir|
       source = write_env(dir.join('.env'), "SLACK_BOT_TOKEN=xoxb-sensitive\n")

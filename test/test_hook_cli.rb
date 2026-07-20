@@ -78,6 +78,33 @@ class CodexNotifyHookCLITest < Minitest::Test
     end
   end
 
+  def test_migrate_config_dry_run_does_not_read_input_or_create_output
+    with_tmpdir do |dir|
+      source = dir.join('legacy.env')
+      source.write("SLACK_BOT_TOKEN=xoxb-sensitive\nSLACK_CHANNEL=CMIGRATED\n")
+      source.chmod(0o600)
+      target = dir.join('config.yml')
+      stdin = Object.new
+      stdin.define_singleton_method(:read) { |_limit| raise 'stdin must not be read' }
+      stdout = StringIO.new
+      stderr = StringIO.new
+
+      exit_code = hook_cli_main(
+        ['--migrate-config', '--dry-run', '--env-file', source.to_s, '--config', target.to_s],
+        stdin:,
+        stdout:,
+        stderr:
+      )
+
+      assert_equal 0, exit_code
+      refute target.exist?
+      assert_empty @client.posts
+      assert_includes stdout.string, 'No files were created or modified'
+      refute_includes stdout.string, 'xoxb-sensitive'
+      assert_empty stderr.string
+    end
+  end
+
   def test_invalid_destination_returns_configuration_error_without_posting_or_state_update
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
