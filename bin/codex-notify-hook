@@ -1,7 +1,10 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'pathname'
+
 root = File.expand_path('..', __dir__)
+legacy_checkout_root = Pathname(root) if File.exist?(File.join(root, '.git'))
 ruby_version_file = File.join(root, '.ruby-version')
 
 if ENV['CODEX_NOTIFY_RBENV_REEXEC'] != '1' && File.exist?(ruby_version_file)
@@ -24,4 +27,4 @@ $LOAD_PATH.unshift(File.join(root, 'lib'))
 
 require 'codex_notify/hook_cli'
 
-exit(CodexNotify::HookCLI.main(ARGV))
+exit(CodexNotify::HookCLI.main(ARGV, legacy_checkout_root:))
