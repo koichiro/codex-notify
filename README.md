@@ -126,8 +126,6 @@ chmod 600 "${XDG_CONFIG_HOME:-$HOME/.config}/codex-notify/config.yml"
 ```
 
 ```yaml
-env_policy: restricted
-
 default_destination:
   token: xoxb-your-token
   channel: C0123456789
@@ -151,7 +149,7 @@ Environment variables remain supported:
 - `SLACK_BOT_TOKEN__NAME`: legacy-compatible Slack bot token for named destination `NAME`
 - `SLACK_CHANNEL__NAME`: legacy-compatible required channel for named destination `NAME`
 - `CODEX_NOTIFY_DESTINATION`: named Hook destination selected by a repository or process environment
-- `CODEX_NOTIFY_ENV_POLICY`: Hook env policy; set `restricted` in trusted tool configuration to filter repository credentials
+- `CODEX_NOTIFY_ENV_POLICY`: repository env policy; defaults to `restricted`, with `legacy` retained temporarily as a trusted compatibility switch
 - `CODEX_NOTIFY_USER_NAME`: Label used for user messages in Slack, default is the local system user
 - `CODEX_PROMPT`: Optional initial prompt to post as a user message when monitoring begins
 - `CODEX_NOTIFY_TITLE`: Optional title used for the root Slack message or hook session thread
@@ -436,15 +434,51 @@ Explicit `--token` and `--channel` values remain highest priority, although `--t
 
 #### Repository env policy and migration
 
-Phase 1 keeps the legacy default behavior: when no destination is selected, an automatically discovered repository `.env` may still supply `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`. A deprecation warning is written to stderr when either repository value is actually selected. The warning contains variable names and the file path, never token values.
+The default `restricted` policy treats an automatically discovered repository
+`.env` as an untrusted routing and presentation source. It may provide only
+`CODEX_NOTIFY_DESTINATION`, `CODEX_NOTIFY_TITLE`, `CODEX_NOTIFY_USER_NAME`, and
+`CODEX_NOTIFY_MODE`. Raw Slack credentials, raw channels, profile definitions,
+and `CODEX_NOTIFY_ENV_POLICY` are ignored. Diagnostics identify ignored Slack
+key names and the source path without printing their values.
 
-Set the following in the trusted XDG config file to opt into the safer policy:
+An explicitly supplied `--env-file PATH` remains an intentional trusted source
+and may contain credentials. Process environment values, explicit CLI values,
+and trusted YAML configuration also retain their documented precedence.
+
+For temporary compatibility, trusted configuration may explicitly restore the
+legacy repository credential behavior:
 
 ```yaml
-env_policy: restricted
+env_policy: legacy
 ```
 
-Under `restricted`, an automatically discovered repository `.env` may provide only `CODEX_NOTIFY_DESTINATION`, `CODEX_NOTIFY_TITLE`, `CODEX_NOTIFY_USER_NAME`, and `CODEX_NOTIFY_MODE`. Raw Slack credentials, raw channels, and profile definitions from that file are ignored with a value-free warning. A file explicitly supplied with `--env-file PATH` remains an intentional trusted source and may contain credentials.
+Legacy mode emits a prominent value-free warning on every invocation where a
+repository token or raw channel is actually selected. A repository `.env`
+cannot enable legacy mode itself. This escape hatch is temporary and is planned
+for removal in a future major release.
+
+Before migration:
+
+```env
+# Repository .env
+SLACK_BOT_TOKEN=xoxb-work-token
+SLACK_CHANNEL=C1111111111
+```
+
+After migration:
+
+```yaml
+# $XDG_CONFIG_HOME/codex-notify/config.yml
+destinations:
+  PROJECT_A:
+    token: xoxb-work-token
+    channel: C1111111111
+```
+
+```env
+# Repository .env
+CODEX_NOTIFY_DESTINATION=PROJECT_A
+```
 
 Migration checklist:
 
