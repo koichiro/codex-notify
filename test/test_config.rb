@@ -101,8 +101,8 @@ class CodexNotifyConfigTest < Minitest::Test
           env_file.chmod(0o600)
           stderr = StringIO.new
 
-          args = with_app_root(tool_root) do
-            Dir.chdir(repository) { Config.parse_args([], stderr:) }
+          args = Dir.chdir(repository) do
+            Config.parse_args([], stderr:, legacy_checkout_root: tool_root)
           end
 
           assert_equal 'xoxb-trusted', args.token
@@ -188,7 +188,7 @@ class CodexNotifyConfigTest < Minitest::Test
     assert_equal 'CLI title', args.title
   end
 
-  def test_load_env_file_falls_back_to_app_root_for_relative_path
+  def test_load_env_file_uses_an_explicit_legacy_checkout_root_for_relative_path
     with_tmpdir do |dir|
       env_file = dir.join('.env')
       env_file.write("SLACK_BOT_TOKEN=xoxb-app-root\nSLACK_CHANNEL=CROOT\n")
@@ -196,19 +196,10 @@ class CodexNotifyConfigTest < Minitest::Test
       ENV.delete('SLACK_BOT_TOKEN')
       ENV.delete('SLACK_CHANNEL')
 
-      original = Config.method(:app_root)
       Dir.mktmpdir do |cwd|
         Dir.chdir(cwd) do
-          with_silenced_warnings do
-            Config.singleton_class.send(:define_method, :app_root) { dir }
-          end
-
-          Config.load_env_file('.env')
+          Config.load_env_file('.env', legacy_checkout_root: dir)
         end
-      end
-    ensure
-      with_silenced_warnings do
-        Config.singleton_class.send(:define_method, :app_root, original)
       end
     end
 
@@ -216,35 +207,26 @@ class CodexNotifyConfigTest < Minitest::Test
     assert_equal 'CROOT', ENV['SLACK_CHANNEL']
   end
 
-  def test_load_env_file_merges_cwd_and_app_root_relative_paths
-    with_tmpdir do |app_root|
-      app_root.join('.env').write("SLACK_BOT_TOKEN=xoxb-app-root\nSLACK_CHANNEL=CROOT\n")
-      app_root.join('.env').chmod(0o600)
+  def test_load_env_file_merges_cwd_and_legacy_checkout_root_relative_paths
+    with_tmpdir do |checkout_root|
+      checkout_root.join('.env').write("SLACK_BOT_TOKEN=xoxb-app-root\nSLACK_CHANNEL=CROOT\n")
+      checkout_root.join('.env').chmod(0o600)
       ENV.delete('SLACK_BOT_TOKEN')
       ENV.delete('SLACK_CHANNEL')
 
-      original = Config.method(:app_root)
       Dir.mktmpdir do |cwd|
         Pathname(cwd).join('.env').write("CODEX_NOTIFY_USER_NAME=cwd-user\n")
         Pathname(cwd).join('.env').chmod(0o600)
 
         Dir.chdir(cwd) do
-          with_silenced_warnings do
-            Config.singleton_class.send(:define_method, :app_root) { app_root }
-          end
-
           stderr = StringIO.new
-          args = Config.parse_args([], stderr:)
+          args = Config.parse_args([], stderr:, legacy_checkout_root: checkout_root)
           assert_equal 'xoxb-app-root', args.token
           assert_equal 'CROOT', args.channel
           assert_equal 'cwd-user', args.user_name
           assert_includes stderr.string, 'legacy codex-notify env file'
           refute_includes stderr.string, 'xoxb-app-root'
         end
-      end
-    ensure
-      with_silenced_warnings do
-        Config.singleton_class.send(:define_method, :app_root, original)
       end
     end
   end
@@ -330,15 +312,4 @@ class CodexNotifyConfigTest < Minitest::Test
     $VERBOSE = original_verbose
   end
 
-  def with_app_root(path)
-    original = Config.method(:app_root)
-    with_silenced_warnings do
-      Config.singleton_class.send(:define_method, :app_root) { path }
-    end
-    yield
-  ensure
-    with_silenced_warnings do
-      Config.singleton_class.send(:define_method, :app_root, original)
-    end
-  end
 end

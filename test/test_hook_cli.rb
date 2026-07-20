@@ -31,6 +31,32 @@ class CodexNotifyHookCLITest < Minitest::Test
     assert_includes err.string, 'need --token/--channel'
   end
 
+  def test_main_forwards_an_explicit_legacy_checkout_root
+    with_tmpdir do |checkout_root|
+      with_tmpdir do |xdg_home|
+        ENV.keys.grep(/\A(?:SLACK_|CODEX_NOTIFY_)/).each { |key| ENV.delete(key) }
+        ENV['XDG_CONFIG_HOME'] = xdg_home.to_s
+        env_file = checkout_root.join('.env')
+        env_file.write("SLACK_BOT_TOKEN=xoxb-checkout\nSLACK_CHANNEL=CCHECKOUT\n")
+        env_file.chmod(0o600)
+        stderr = StringIO.new
+
+        exit_code = hook_cli_main(
+          ['--state-file', checkout_root.join('state.json').to_s],
+          stdin: StringIO.new,
+          stderr:,
+          stdout: StringIO.new,
+          legacy_checkout_root: checkout_root
+        )
+
+        assert_equal 2, exit_code
+        assert_includes stderr.string, 'hook stdin is empty'
+        assert_includes stderr.string, 'legacy codex-notify env file'
+        refute_includes stderr.string, 'xoxb-checkout'
+      end
+    end
+  end
+
   def test_missing_explicit_config_fails_before_reading_input_or_updating_state
     with_tmpdir do |dir|
       state_file = dir.join('state.json')

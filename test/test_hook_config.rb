@@ -15,7 +15,7 @@ class CodexNotifyHookConfigTest < Minitest::Test
     ENV.replace(@env_backup)
   end
 
-  def test_parse_args_falls_back_to_app_root_env_for_relative_path
+  def test_parse_args_uses_an_explicit_legacy_checkout_root_for_relative_path
     with_tmpdir do |dir|
       env_file = dir.join('.env')
       env_file.write("SLACK_BOT_TOKEN=xoxb-hook\nSLACK_CHANNEL=CHOOK\nCODEX_NOTIFY_USER_NAME=hook-user\n")
@@ -24,15 +24,10 @@ class CodexNotifyHookConfigTest < Minitest::Test
       ENV.delete('SLACK_CHANNEL')
       ENV.delete('CODEX_NOTIFY_USER_NAME')
 
-      original = HookConfig.method(:app_root)
       Dir.mktmpdir do |cwd|
         Dir.chdir(cwd) do
-          with_silenced_warnings do
-            HookConfig.singleton_class.send(:define_method, :app_root) { dir }
-          end
-
           stderr = StringIO.new
-          args = HookConfig.parse_args([], stderr:)
+          args = HookConfig.parse_args([], stderr:, legacy_checkout_root: dir)
           assert_equal 'xoxb-hook', args.token
           assert_equal 'CHOOK', args.channel
           assert_equal 'hook-user', args.user_name
@@ -40,40 +35,27 @@ class CodexNotifyHookConfigTest < Minitest::Test
           refute_includes stderr.string, 'xoxb-hook'
         end
       end
-    ensure
-      with_silenced_warnings do
-        HookConfig.singleton_class.send(:define_method, :app_root, original)
-      end
     end
   end
 
-  def test_parse_args_merges_cwd_and_app_root_relative_paths
-    with_tmpdir do |app_root|
-      app_root.join('.env').write("SLACK_BOT_TOKEN=xoxb-hook\nSLACK_CHANNEL=CHOOK\n")
-      app_root.join('.env').chmod(0o600)
+  def test_parse_args_merges_cwd_and_legacy_checkout_root_relative_paths
+    with_tmpdir do |checkout_root|
+      checkout_root.join('.env').write("SLACK_BOT_TOKEN=xoxb-hook\nSLACK_CHANNEL=CHOOK\n")
+      checkout_root.join('.env').chmod(0o600)
       ENV.delete('SLACK_BOT_TOKEN')
       ENV.delete('SLACK_CHANNEL')
       ENV.delete('CODEX_NOTIFY_USER_NAME')
 
-      original = HookConfig.method(:app_root)
       Dir.mktmpdir do |cwd|
         Pathname(cwd).join('.env').write("CODEX_NOTIFY_USER_NAME=cwd-user\n")
         Pathname(cwd).join('.env').chmod(0o600)
 
         Dir.chdir(cwd) do
-          with_silenced_warnings do
-            HookConfig.singleton_class.send(:define_method, :app_root) { app_root }
-          end
-
-          args = HookConfig.parse_args([], stderr: StringIO.new)
+          args = HookConfig.parse_args([], stderr: StringIO.new, legacy_checkout_root: checkout_root)
           assert_equal 'xoxb-hook', args.token
           assert_equal 'CHOOK', args.channel
           assert_equal 'cwd-user', args.user_name
         end
-      end
-    ensure
-      with_silenced_warnings do
-        HookConfig.singleton_class.send(:define_method, :app_root, original)
       end
     end
   end
@@ -280,11 +262,11 @@ class CodexNotifyHookConfigTest < Minitest::Test
         )
         stderr = StringIO.new
 
-        with_app_root(tool_root) do
-          Dir.chdir(repository) do
-            error = assert_raises(HookConfig::Error) { HookConfig.parse_args([], stderr:) }
-            assert_includes error.message, 'missing SLACK_CHANNEL__PROJECT_A'
+        Dir.chdir(repository) do
+          error = assert_raises(HookConfig::Error) do
+            HookConfig.parse_args([], stderr:, legacy_checkout_root: tool_root)
           end
+          assert_includes error.message, 'missing SLACK_CHANNEL__PROJECT_A'
         end
 
         assert_includes stderr.string, 'ignored SLACK_CHANNEL__PROJECT_A'
@@ -326,8 +308,8 @@ class CodexNotifyHookConfigTest < Minitest::Test
         write_env(repository.join('.env'), "SLACK_BOT_TOKEN=xoxb-repository\nSLACK_CHANNEL=CREPOSITORY\n")
         stderr = StringIO.new
 
-        args = with_app_root(tool_root) do
-          Dir.chdir(repository) { HookConfig.parse_args([], stderr:) }
+        args = Dir.chdir(repository) do
+          HookConfig.parse_args([], stderr:, legacy_checkout_root: tool_root)
         end
 
         assert_equal 'xoxb-process', args.token
@@ -353,8 +335,8 @@ class CodexNotifyHookConfigTest < Minitest::Test
         )
         stderr = StringIO.new
 
-        args = with_app_root(tool_root) do
-          Dir.chdir(repository) { HookConfig.parse_args([], stderr:) }
+        args = Dir.chdir(repository) do
+          HookConfig.parse_args([], stderr:, legacy_checkout_root: tool_root)
         end
 
         assert_equal 'PROJECT_A', args.destination
@@ -395,8 +377,8 @@ class CodexNotifyHookConfigTest < Minitest::Test
           )
           stderr = StringIO.new
 
-          args = with_app_root(tool_root) do
-            Dir.chdir(repository) { HookConfig.parse_args([], stderr:) }
+          args = Dir.chdir(repository) do
+            HookConfig.parse_args([], stderr:, legacy_checkout_root: tool_root)
           end
 
           assert_equal 'xoxb-trusted', args.token
@@ -455,15 +437,4 @@ class CodexNotifyHookConfigTest < Minitest::Test
     path
   end
 
-  def with_app_root(path)
-    original = HookConfig.method(:app_root)
-    with_silenced_warnings do
-      HookConfig.singleton_class.send(:define_method, :app_root) { path }
-    end
-    yield
-  ensure
-    with_silenced_warnings do
-      HookConfig.singleton_class.send(:define_method, :app_root, original)
-    end
-  end
 end

@@ -71,14 +71,14 @@ module CodexNotify
       [parser, options]
     end
 
-    def parse_args(argv = nil, stderr: $stderr)
+    def parse_args(argv = nil, stderr: $stderr, legacy_checkout_root: nil)
       parser, options = build_parser
       parser.parse!(argv || [])
       return options if options.migrate_config
 
       ConfigDiagnostics.warn_deprecated_cli_token(stderr:) if options.token_from_cli
 
-      sources = EnvSourceLoader.new(app_root:, stderr:).load(
+      sources = EnvSourceLoader.new(legacy_checkout_root:, stderr:).load(
         path: options.env_file,
         explicit: options.env_file_explicit,
         config_path: options.config_file
