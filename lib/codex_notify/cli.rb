@@ -28,8 +28,15 @@ module CodexNotify
       SlackClient.new(token:, channel:).post(text, thread_ts:)
     end
 
-    def main(argv = nil, stdin: nil, stderr: $stderr)
+    def main(argv = nil, stdin: nil, stderr: $stderr, stdout: $stdout)
       args = CodexNotify::Config.parse_args(argv, stderr:)
+      if args.migrate_config
+        return ConfigMigrator.new(app_root: Config.app_root, stdout:, stderr:).run(
+          env_path: args.env_file,
+          env_explicit: args.env_file_explicit,
+          config_path: args.config_file
+        )
+      end
       if args.outbox_action
         return OutboxCommands.run(
           action: args.outbox_action,
@@ -38,12 +45,12 @@ module CodexNotify
           token: args.token,
           channel: args.channel,
           state_file: Pathname(args.outbox_dir).join('thread-state.json'),
-          stdout: $stdout,
+          stdout:,
           stderr:
         )
       end
       unless args.token && args.channel
-        stderr.puts('ERROR: need --token/--channel or env SLACK_BOT_TOKEN / SLACK_CHANNEL')
+        stderr.puts('ERROR: need --token/--channel or a Slack destination from environment or config file')
         return 2
       end
 
@@ -97,6 +104,9 @@ module CodexNotify
     rescue SlackOutbox::Error => e
       stderr.puts("ERROR: #{e.message}")
       1
+    rescue Config::Error, ConfigMigrator::Error, OptionParser::ParseError => e
+      stderr.puts("ERROR: #{e.message}")
+      2
     end
   end
 end

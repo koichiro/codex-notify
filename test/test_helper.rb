@@ -6,6 +6,11 @@ Coverage.start(lines: true)
 
 require 'minitest/autorun'
 require 'pathname'
+require 'tmpdir'
+require 'fileutils'
+
+TEST_XDG_CONFIG_HOME = Pathname(Dir.mktmpdir('codex-notify-test-config'))
+ENV['XDG_CONFIG_HOME'] = TEST_XDG_CONFIG_HOME.to_s
 
 ROOT = Pathname(__dir__).join('..').expand_path
 $LOAD_PATH.unshift(ROOT.join('lib').to_s)
@@ -33,4 +38,5 @@ end
 
 Minitest.after_run do
   CoverageReport.report!
+  FileUtils.remove_entry(TEST_XDG_CONFIG_HOME) if TEST_XDG_CONFIG_HOME.exist?
 end

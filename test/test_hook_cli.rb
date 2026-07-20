@@ -31,6 +31,53 @@ class CodexNotifyHookCLITest < Minitest::Test
     assert_includes err.string, 'need --token/--channel'
   end
 
+  def test_missing_explicit_config_fails_before_reading_input_or_updating_state
+    with_tmpdir do |dir|
+      state_file = dir.join('state.json')
+      stdin = Object.new
+      stdin.define_singleton_method(:read) { |_limit| raise 'stdin must not be read' }
+      err = StringIO.new
+
+      exit_code = hook_cli_main(
+        ['--config', dir.join('missing.yml').to_s, '--state-file', state_file.to_s],
+        stdin:,
+        stderr: err,
+        stdout: StringIO.new
+      )
+
+      assert_equal 2, exit_code
+      assert_includes err.string, 'config file does not exist'
+      assert_empty @client.posts
+      refute state_file.exist?
+    end
+  end
+
+  def test_migrate_config_does_not_read_hook_input
+    with_tmpdir do |dir|
+      source = dir.join('legacy.env')
+      source.write("SLACK_BOT_TOKEN=xoxb-sensitive\nSLACK_CHANNEL=CMIGRATED\n")
+      source.chmod(0o600)
+      target = dir.join('config.yml')
+      stdin = Object.new
+      stdin.define_singleton_method(:read) { |_limit| raise 'stdin must not be read' }
+      stdout = StringIO.new
+      stderr = StringIO.new
+
+      exit_code = hook_cli_main(
+        ['--migrate-config', '--env-file', source.to_s, '--config', target.to_s],
+        stdin:,
+        stdout:,
+        stderr:
+      )
+
+      assert_equal 0, exit_code
+      assert_equal 'CMIGRATED', YAML.safe_load_file(target.to_s).dig('default_destination', 'channel')
+      assert_empty @client.posts
+      refute_includes stdout.string, 'xoxb-sensitive'
+      assert_empty stderr.string
+    end
+  end
+
   def test_invalid_destination_returns_configuration_error_without_posting_or_state_update
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'

@@ -26,6 +26,39 @@ class CodexNotifyCLITest < Minitest::Test
     assert_includes err.string, 'need --token/--channel'
   end
 
+  def test_main_returns_configuration_error_for_missing_explicit_config
+    with_tmpdir do |dir|
+      err = StringIO.new
+
+      exit_code = CLI.main(['--config', dir.join('missing.yml').to_s], stderr: err)
+
+      assert_equal 2, exit_code
+      assert_includes err.string, 'config file does not exist'
+    end
+  end
+
+  def test_migrate_config_does_not_require_credentials_or_a_session_log
+    with_tmpdir do |dir|
+      source = dir.join('legacy.env')
+      source.write("SLACK_BOT_TOKEN=xoxb-sensitive\nSLACK_CHANNEL=CMIGRATED\n")
+      source.chmod(0o600)
+      target = dir.join('config.yml')
+      stdout = StringIO.new
+      stderr = StringIO.new
+
+      exit_code = CLI.main(
+        ['--migrate-config', '--env-file', source.to_s, '--config', target.to_s],
+        stdout:,
+        stderr:
+      )
+
+      assert_equal 0, exit_code
+      assert_equal 'CMIGRATED', YAML.safe_load_file(target.to_s).dig('default_destination', 'channel')
+      refute_includes stdout.string, 'xoxb-sensitive'
+      assert_empty stderr.string
+    end
+  end
+
   def test_main_returns_error_without_session_log
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
