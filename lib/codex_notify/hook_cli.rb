@@ -21,8 +21,7 @@ module CodexNotify
         return ConfigMigrator.new(app_root: HookConfig.app_root, stdout:, stderr:).run(
           env_path: args.env_file,
           env_explicit: args.env_file_explicit,
-          config_path: args.config_file,
-          dry_run: args.dry_run
+          config_path: args.config_file
         )
       end
 

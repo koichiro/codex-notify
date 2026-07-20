@@ -26,7 +26,7 @@ module CodexNotify
       @stderr = stderr
     end
 
-    def run(env_path:, env_explicit:, config_path: nil, dry_run: false)
+    def run(env_path:, env_explicit:, config_path: nil)
       source = source_path(env_path, explicit: env_explicit)
       target = target_path(config_path)
       validate_paths(source, target)
@@ -34,8 +34,6 @@ module CodexNotify
       ConfigDiagnostics.warn_if_env_file_insecure(source, stderr: @stderr)
       values = Dotenv.parse(source.to_s)
       document = build_document(values)
-      return report_dry_run(source, target, document) if dry_run
-
       write_config(target, YAML.dump(document))
       @stdout.puts("Created trusted config file #{target}.")
       @stdout.puts('Verify the destination settings, then remove migrated secrets from the legacy env file manually.')
@@ -135,19 +133,6 @@ module CodexNotify
       rescue Errno::EEXIST
         raise Error, "config file already exists: #{path}"
       end
-    end
-
-    def report_dry_run(source, target, document)
-      default = document.key?('default_destination') ? 'present' : 'absent'
-      destination_count = document.fetch('destinations', {}).length
-      policy = document.key?('env_policy') ? 'present' : 'absent'
-      @stdout.puts("Migration check passed for #{source}.")
-      @stdout.puts(
-        "Would create #{target}: default destination #{default}, " \
-        "#{destination_count} named destination(s), environment policy #{policy}."
-      )
-      @stdout.puts('No files were created or modified.')
-      0
     end
 
     def empty?(value)

@@ -22,7 +22,6 @@ module CodexNotify
       :env_file_explicit,
       :config_file,
       :migrate_config,
-      :dry_run,
       :token,
       :channel,
       :destination,
@@ -46,7 +45,6 @@ module CodexNotify
         env_file_explicit: false,
         config_file: nil,
         migrate_config: false,
-        dry_run: false,
         token: nil,
         channel: nil,
         destination: nil,
@@ -76,7 +74,6 @@ module CodexNotify
     def parse_args(argv = nil, stderr: $stderr)
       parser, options = build_parser
       parser.parse!(argv || [])
-      raise OptionParser::InvalidOption, '--dry-run requires --migrate-config' if options.dry_run && !options.migrate_config
       return options if options.migrate_config
 
       ConfigDiagnostics.warn_deprecated_cli_token(stderr:) if options.token_from_cli

@@ -61,9 +61,6 @@ module CodexNotify
       parser.on('--migrate-config', 'Create trusted YAML from a legacy env file') do
         options.migrate_config = true
       end
-      parser.on('--dry-run', 'Validate migration without creating config.yml') do
-        options.dry_run = true
-      end
       parser.on('--env-file PATH') do |value|
         options.env_file = value
         options.env_file_explicit = true if options.respond_to?(:env_file_explicit=)

@@ -59,38 +59,6 @@ class CodexNotifyCLITest < Minitest::Test
     end
   end
 
-  def test_migrate_config_dry_run_does_not_create_output
-    with_tmpdir do |dir|
-      source = dir.join('legacy.env')
-      source.write("SLACK_BOT_TOKEN=xoxb-sensitive\nSLACK_CHANNEL=CMIGRATED\n")
-      source.chmod(0o600)
-      target = dir.join('config.yml')
-      stdout = StringIO.new
-      stderr = StringIO.new
-
-      exit_code = CLI.main(
-        ['--migrate-config', '--dry-run', '--env-file', source.to_s, '--config', target.to_s],
-        stdout:,
-        stderr:
-      )
-
-      assert_equal 0, exit_code
-      refute target.exist?
-      assert_includes stdout.string, 'Migration check passed'
-      refute_includes stdout.string, 'xoxb-sensitive'
-      assert_empty stderr.string
-    end
-  end
-
-  def test_dry_run_requires_migrate_config
-    stderr = StringIO.new
-
-    exit_code = CLI.main(['--dry-run'], stderr:)
-
-    assert_equal 2, exit_code
-    assert_includes stderr.string, '--dry-run requires --migrate-config'
-  end
-
   def test_main_returns_error_without_session_log
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'
