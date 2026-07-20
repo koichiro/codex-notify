@@ -31,8 +31,16 @@ module CodexNotify
 
     def warn_deprecated_repository_credentials(path, keys, stderr:)
       stderr.puts(
-        "WARNING: repository Slack settings #{keys.join(' and ')} loaded from automatically discovered env file #{path} " \
-        'are deprecated; configure a trusted destination profile and use CODEX_NOTIFY_DESTINATION.'
+        "WARNING: insecure legacy mode loaded repository Slack settings #{keys.join(' and ')} from automatically " \
+        "discovered env file #{path}; this temporary compatibility mode will be removed in a future major release. " \
+        'Configure a trusted destination profile and use CODEX_NOTIFY_DESTINATION.'
+      )
+    end
+
+    def warn_ignored_repository_policy(path, stderr:)
+      stderr.puts(
+        "WARNING: ignored CODEX_NOTIFY_ENV_POLICY from automatically discovered repository env file #{path}; " \
+        'the policy must come from trusted configuration.'
       )
     end
 

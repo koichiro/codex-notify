@@ -151,7 +151,7 @@ class CodexNotifyHookConfigTest < Minitest::Test
         config_file = xdg_home.join('codex-notify/config.yml')
         config_file.dirname.mkpath
         config_file.write(
-          "env_policy: restricted\ndefault_destination:\n  token: xoxb-default\n" \
+          "default_destination:\n  token: xoxb-default\n" \
           "destinations:\n  PROJECT_A:\n    channel: CPROJECT\n"
         )
         config_file.chmod(0o600)
@@ -294,27 +294,30 @@ class CodexNotifyHookConfigTest < Minitest::Test
   end
 
   def test_legacy_policy_uses_repository_credentials_with_a_deprecation_warning
-    with_tmpdir do |tool_root|
+    with_tmpdir do |xdg_home|
       with_tmpdir do |repository|
         clear_hook_environment
-        write_env(tool_root.join('.env'), "SLACK_BOT_TOKEN=xoxb-tool\nSLACK_CHANNEL=CTOOL\n")
+        ENV['XDG_CONFIG_HOME'] = xdg_home.to_s
+        config_file = xdg_home.join('codex-notify/config.yml')
+        config_file.dirname.mkpath
+        config_file.write("env_policy: legacy\n")
+        config_file.chmod(0o600)
         write_env(repository.join('.env'), "SLACK_BOT_TOKEN=xoxb-repository\nSLACK_CHANNEL=CREPOSITORY\n")
         stderr = StringIO.new
 
-        args = with_app_root(tool_root) do
-          Dir.chdir(repository) { HookConfig.parse_args([], stderr:) }
-        end
+        args = Dir.chdir(repository) { HookConfig.parse_args([], stderr:) }
 
         assert_equal 'xoxb-repository', args.token
         assert_equal 'CREPOSITORY', args.channel
-        assert_includes stderr.string, 'are deprecated'
+        assert_includes stderr.string, 'insecure legacy mode'
         assert_includes stderr.string, 'SLACK_BOT_TOKEN and SLACK_CHANNEL'
+        assert_includes stderr.string, 'future major release'
         refute_includes stderr.string, 'xoxb-repository'
       end
     end
   end
 
-  def test_process_environment_overrides_repository_credentials_without_warning
+  def test_process_environment_overrides_repository_credentials_without_legacy_warning
     with_tmpdir do |tool_root|
       with_tmpdir do |repository|
         clear_hook_environment
@@ -329,16 +332,16 @@ class CodexNotifyHookConfigTest < Minitest::Test
 
         assert_equal 'xoxb-process', args.token
         assert_equal 'CPROCESS', args.channel
-        refute_includes stderr.string, 'are deprecated'
+        refute_includes stderr.string, 'insecure legacy mode'
+        assert_includes stderr.string, 'under the restricted policy'
       end
     end
   end
 
-  def test_restricted_policy_filters_repository_credentials_but_keeps_allowed_settings
+  def test_default_policy_filters_repository_credentials_but_keeps_allowed_settings
     with_tmpdir do |tool_root|
       with_tmpdir do |repository|
         clear_hook_environment
-        ENV['CODEX_NOTIFY_ENV_POLICY'] = 'restricted'
         write_env(
           tool_root.join('.env'),
           "SLACK_BOT_TOKEN=xoxb-trusted\nSLACK_CHANNEL__PROJECT_A=CTRUSTED\n"
@@ -367,13 +370,62 @@ class CodexNotifyHookConfigTest < Minitest::Test
   def test_explicit_env_file_may_supply_credentials_under_restricted_policy
     with_tmpdir do |dir|
       clear_hook_environment
-      ENV['CODEX_NOTIFY_ENV_POLICY'] = 'restricted'
       env_file = write_env(dir.join('intentional.env'), "SLACK_BOT_TOKEN=xoxb-explicit\nSLACK_CHANNEL=CEXPLICIT\n")
 
       args = HookConfig.parse_args(['--env-file', env_file.to_s])
 
       assert_equal 'xoxb-explicit', args.token
       assert_equal 'CEXPLICIT', args.channel
+    end
+  end
+
+  def test_repository_cannot_enable_legacy_policy
+    with_tmpdir do |xdg_home|
+      with_tmpdir do |repository|
+        with_tmpdir do |tool_root|
+          clear_hook_environment
+          ENV['XDG_CONFIG_HOME'] = xdg_home.to_s
+          config_file = xdg_home.join('codex-notify/config.yml')
+          config_file.dirname.mkpath
+          config_file.write("default_destination:\n  token: xoxb-trusted\n  channel: CTRUSTED\n")
+          config_file.chmod(0o600)
+          write_env(
+            repository.join('.env'),
+            "CODEX_NOTIFY_ENV_POLICY=legacy\nSLACK_BOT_TOKEN=xoxb-repository\nSLACK_CHANNEL=CREPOSITORY\n"
+          )
+          stderr = StringIO.new
+
+          args = with_app_root(tool_root) do
+            Dir.chdir(repository) { HookConfig.parse_args([], stderr:) }
+          end
+
+          assert_equal 'xoxb-trusted', args.token
+          assert_equal 'CTRUSTED', args.channel
+          assert_includes stderr.string, 'ignored CODEX_NOTIFY_ENV_POLICY'
+          assert_includes stderr.string, 'under the restricted policy'
+          refute_includes stderr.string, 'xoxb-repository'
+        end
+      end
+    end
+  end
+
+  def test_process_policy_overrides_xdg_policy
+    with_tmpdir do |xdg_home|
+      with_tmpdir do |repository|
+        clear_hook_environment
+        ENV['XDG_CONFIG_HOME'] = xdg_home.to_s
+        ENV['CODEX_NOTIFY_ENV_POLICY'] = 'legacy'
+        config_file = xdg_home.join('codex-notify/config.yml')
+        config_file.dirname.mkpath
+        config_file.write("env_policy: restricted\n")
+        config_file.chmod(0o600)
+        write_env(repository.join('.env'), "SLACK_BOT_TOKEN=xoxb-repository\nSLACK_CHANNEL=CREPOSITORY\n")
+
+        args = Dir.chdir(repository) { HookConfig.parse_args([], stderr: StringIO.new) }
+
+        assert_equal 'xoxb-repository', args.token
+        assert_equal 'CREPOSITORY', args.channel
+      end
     end
   end
 

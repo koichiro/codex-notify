@@ -10,6 +10,7 @@ module CodexNotify
     class Error < StandardError; end
 
     DEFAULT_ENV_PATH = '.env'
+    DEFAULT_ENV_POLICY = 'restricted'
     ENV_POLICIES = %w[legacy restricted].freeze
     REPOSITORY_ALLOWED_KEYS = %w[
       CODEX_NOTIFY_DESTINATION
@@ -85,7 +86,7 @@ module CodexNotify
 
     def resolve_policy(sources, stderr: $stderr)
       result = trusted_sources(sources).lookup('CODEX_NOTIFY_ENV_POLICY')
-      policy = result ? result.value.strip.downcase : 'legacy'
+      policy = result ? result.value.strip.downcase : DEFAULT_ENV_POLICY
       raise Error, "environment policy must be one of: #{ENV_POLICIES.join(', ')}" unless ENV_POLICIES.include?(policy)
 
       warn_if_legacy_tool_source(result&.source, ['CODEX_NOTIFY_ENV_POLICY'], stderr:)
@@ -134,6 +135,11 @@ module CodexNotify
 
     def warn_ignored_repository_values(sources, policy:, stderr:)
       sources.select { |source| source.kind == :repository }.each do |source|
+        policy_value = source.values['CODEX_NOTIFY_ENV_POLICY']
+        if policy_value && !policy_value.empty?
+          ConfigDiagnostics.warn_ignored_repository_policy(source.path, stderr:)
+        end
+
         ignored = source.values.keys.grep(REPOSITORY_CREDENTIAL_PATTERN)
         ignored.select! { |key| key.include?('__') } if policy == 'legacy'
         next if ignored.empty?

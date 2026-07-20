@@ -83,6 +83,38 @@ class CodexNotifyConfigTest < Minitest::Test
     end
   end
 
+  def test_default_policy_ignores_repository_credentials_in_log_tail_mode
+    with_tmpdir do |xdg_home|
+      with_tmpdir do |repository|
+        with_tmpdir do |tool_root|
+          ENV.keys.grep(/\A(?:SLACK_|CODEX_NOTIFY_)/).each { |key| ENV.delete(key) }
+          ENV['XDG_CONFIG_HOME'] = xdg_home.to_s
+          config_file = xdg_home.join('codex-notify/config.yml')
+          config_file.dirname.mkpath
+          config_file.write("default_destination:\n  token: xoxb-trusted\n  channel: CTRUSTED\n")
+          config_file.chmod(0o600)
+          env_file = repository.join('.env')
+          env_file.write(
+            "SLACK_BOT_TOKEN=xoxb-repository\nSLACK_CHANNEL=CREPOSITORY\n" \
+            "CODEX_NOTIFY_TITLE=Repository title\n"
+          )
+          env_file.chmod(0o600)
+          stderr = StringIO.new
+
+          args = with_app_root(tool_root) do
+            Dir.chdir(repository) { Config.parse_args([], stderr:) }
+          end
+
+          assert_equal 'xoxb-trusted', args.token
+          assert_equal 'CTRUSTED', args.channel
+          assert_equal 'Repository title', args.title
+          assert_includes stderr.string, 'under the restricted policy'
+          refute_includes stderr.string, 'xoxb-repository'
+        end
+      end
+    end
+  end
+
   def test_process_environment_and_explicit_config_precedence
     with_tmpdir do |dir|
       xdg_file = dir.join('xdg/codex-notify/config.yml')
@@ -296,5 +328,17 @@ class CodexNotifyConfigTest < Minitest::Test
     yield
   ensure
     $VERBOSE = original_verbose
+  end
+
+  def with_app_root(path)
+    original = Config.method(:app_root)
+    with_silenced_warnings do
+      Config.singleton_class.send(:define_method, :app_root) { path }
+    end
+    yield
+  ensure
+    with_silenced_warnings do
+      Config.singleton_class.send(:define_method, :app_root, original)
+    end
   end
 end

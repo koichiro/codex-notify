@@ -65,8 +65,20 @@ class CodexNotifyConfigDiagnosticsTest < Minitest::Test
 
     assert_includes stderr.string, 'SLACK_BOT_TOKEN and SLACK_CHANNEL'
     assert_includes stderr.string, '/project/.env'
+    assert_includes stderr.string, 'insecure legacy mode'
+    assert_includes stderr.string, 'future major release'
     refute_includes stderr.string, 'xoxb-sensitive-value'
     refute_includes stderr.string, 'CSENSITIVE'
+  end
+
+  def test_warns_when_repository_attempts_to_set_the_policy
+    stderr = StringIO.new
+
+    ConfigDiagnostics.warn_ignored_repository_policy('/project/.env', stderr:)
+
+    assert_includes stderr.string, 'ignored CODEX_NOTIFY_ENV_POLICY'
+    assert_includes stderr.string, '/project/.env'
+    assert_includes stderr.string, 'trusted configuration'
   end
 
   def test_warns_about_ignored_repository_credentials_with_optional_policy
