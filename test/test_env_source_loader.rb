@@ -12,7 +12,7 @@ class CodexNotifyEnvSourceLoaderTest < Minitest::Test
       with_tmpdir do |repository|
         write_env(app_root.join('.env'), "VALUE=tool\nTOOL_ONLY=yes\n")
         write_env(repository.join('.env'), "VALUE=repository\n")
-        loader = EnvSourceLoader.new(app_root:, environment: { 'VALUE' => 'process' })
+        loader = env_loader(app_root:, environment: { 'VALUE' => 'process' })
 
         sources = Dir.chdir(repository) { loader.load }
 
@@ -30,7 +30,7 @@ class CodexNotifyEnvSourceLoaderTest < Minitest::Test
       env_file = write_env(dir.join('intentional.env'), "SLACK_BOT_TOKEN=xoxb-explicit\n")
       environment = {}
 
-      sources = EnvSourceLoader.new(environment:).load(path: env_file, explicit: true)
+      sources = env_loader(environment:).load(path: env_file, explicit: true)
 
       assert_equal %i[process explicit], sources.map(&:kind)
       assert_equal 'xoxb-explicit', sources.lookup('SLACK_BOT_TOKEN').value
@@ -72,7 +72,7 @@ class CodexNotifyEnvSourceLoaderTest < Minitest::Test
       env_file.chmod(0o644)
       stderr = StringIO.new
 
-      EnvSourceLoader.new(environment: {}, stderr:).load(path: env_file, explicit: true)
+      env_loader(environment: {}, stderr:).load(path: env_file, explicit: true)
 
       assert_includes stderr.string, 'permissions 0644'
       refute_includes stderr.string, 'xoxb-sensitive'
@@ -89,7 +89,7 @@ class CodexNotifyEnvSourceLoaderTest < Minitest::Test
       end
       error = begin
         assert_raises(EnvSourceLoader::Error) do
-          EnvSourceLoader.new(environment: {}).load(path: env_file, explicit: true)
+          env_loader(environment: {}).load(path: env_file, explicit: true)
         end
       ensure
         with_silenced_warnings do
@@ -104,6 +104,14 @@ class CodexNotifyEnvSourceLoaderTest < Minitest::Test
   end
 
   private
+
+  def env_loader(environment:, stderr: $stderr, **options)
+    config_loader = CodexNotify::TrustedConfigLoader.new(
+      environment: { 'XDG_CONFIG_HOME' => TEST_XDG_CONFIG_HOME.to_s },
+      stderr:
+    )
+    EnvSourceLoader.new(environment:, stderr:, config_loader:, **options)
+  end
 
   def source(kind, values)
     EnvSourceLoader::Source.new(kind:, path: nil, values:)
