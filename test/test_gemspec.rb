@@ -52,6 +52,24 @@ class CodexNotifyGemspecTest < Minitest::Test
     end
   end
 
+  def test_executable_bootstraps_use_only_normal_gem_requires
+    requires = {
+      'codex-notify' => "require 'codex_notify'",
+      'codex-notify-hook' => "require 'codex_notify/hook_cli'"
+    }
+
+    requires.each do |executable, require_line|
+      content = ROOT.join('bin', executable).read
+      assert_includes content, require_line
+      refute_includes content, 'BUNDLE_GEMFILE'
+      refute_includes content, 'bundler/setup'
+      refute_includes content, 'rbenv'
+      refute_includes content, '.ruby-version'
+      refute_includes content, '$LOAD_PATH'
+      refute_includes content, 'legacy_checkout_root'
+    end
+  end
+
   def test_declares_only_dotenv_as_a_runtime_dependency
     spec = load_gemspec
     dependency = spec.runtime_dependencies.fetch(0)
@@ -93,7 +111,7 @@ class CodexNotifyGemspecTest < Minitest::Test
     end
   end
 
-  def test_installed_gem_loads_with_only_declared_runtime_dependencies
+  def test_installed_gem_loads_and_runs_both_executables_outside_the_checkout
     Dir.mktmpdir('codex-notify-install-test') do |tmpdir|
       dir = Pathname(tmpdir)
       package_path = build_package(dir)
@@ -139,6 +157,10 @@ class CodexNotifyGemspecTest < Minitest::Test
       assert status.success?, "installed gem load failed:\n#{stdout}\n#{stderr}"
       assert_equal "#{CodexNotify::VERSION} #{dotenv_spec.version}\n", stdout
       assert_empty stderr
+
+      assert_installed_help(gem_home, dir, run_dir, 'codex-notify', 'Usage: codex-notify [options]')
+      assert_installed_help(gem_home, dir, run_dir, 'codex-notify-hook', 'Usage: codex-notify-hook [options]')
+      assert_installed_hook_errors(gem_home, dir, run_dir)
     end
   end
 
@@ -204,8 +226,57 @@ class CodexNotifyGemspecTest < Minitest::Test
       'HOME' => dir.join('home').to_s,
       'RUBYLIB' => nil,
       'RUBYOPT' => nil,
+      'SLACK_BOT_TOKEN' => nil,
+      'SLACK_CHANNEL' => nil,
       'XDG_CONFIG_HOME' => dir.join('xdg-config').to_s
     }
+  end
+
+  def assert_installed_help(gem_home, dir, run_dir, executable, usage)
+    stdout, stderr, status = run_installed_executable(gem_home, dir, run_dir, executable, '--help')
+
+    assert status.success?, "#{executable} --help failed:\n#{stdout}\n#{stderr}"
+    assert_includes stdout, usage
+    assert_empty stderr
+  end
+
+  def assert_installed_hook_errors(gem_home, dir, run_dir)
+    stdout, stderr, status = run_installed_executable(
+      gem_home,
+      dir,
+      run_dir,
+      'codex-notify-hook',
+      '--event',
+      'UserPromptSubmit',
+      stdin_data: '{}'
+    )
+    assert_equal 2, status.exitstatus
+    assert_empty stdout
+    assert_includes stderr, 'need --token/--channel'
+
+    stdout, stderr, status = run_installed_executable(
+      gem_home,
+      dir,
+      run_dir,
+      'codex-notify-hook',
+      '--event',
+      'UserPromptSubmit',
+      env: { 'SLACK_BOT_TOKEN' => 'xoxb-test', 'SLACK_CHANNEL' => 'CTEST' }
+    )
+    assert_equal 2, status.exitstatus
+    assert_empty stdout
+    assert_includes stderr, 'hook stdin is empty'
+    refute dir.join('home', '.codex-notify-hook').exist?
+  end
+
+  def run_installed_executable(gem_home, dir, run_dir, executable, *arguments, env: {}, stdin_data: '')
+    Open3.capture3(
+      isolated_gem_environment(gem_home, dir).merge(env),
+      gem_home.join('bin', executable).to_s,
+      *arguments,
+      stdin_data:,
+      chdir: run_dir.to_s
+    )
   end
 
   def copy_package_sources(destination)
