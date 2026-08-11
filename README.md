@@ -622,3 +622,21 @@ rake
 The test suite uses `minitest`, runs through `rake`, and enforces 90% line coverage for files under `lib/`.
 
 Ruby 3.4 or newer is supported. CI covers the minimum supported 3.4 series and the 4.0 series used by the project's `.ruby-version`.
+
+### Gem packaging
+
+The gem version is defined once as `CodexNotify::VERSION`. The initial package
+uses version `0.1.0`. Before 1.0, patch releases contain compatible fixes and
+minor releases may contain features or compatibility changes. Releases from
+1.0 onward follow Semantic Versioning.
+
+Build the gem locally and inspect its packaged file list:
+
+```bash
+bundle exec rake gem
+bundle exec rake package:contents
+```
+
+Build artifacts are written under `pkg/` and must not be committed. Publishing
+to RubyGems.org is not part of the current packaging workflow; no publish task
+or publishing credentials are configured by this project.
