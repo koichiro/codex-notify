@@ -55,6 +55,22 @@ class CodexNotifyEnvSourceLoaderTest < Minitest::Test
     end
   end
 
+  def test_load_deduplicates_aliased_repository_and_checkout_paths
+    with_tmpdir do |dir|
+      repository = dir.join('repository')
+      repository.mkpath
+      checkout_alias = dir.join('checkout-alias')
+      checkout_alias.make_symlink(repository)
+      write_env(repository.join('.env'), "VALUE=repository\n")
+      loader = env_loader(legacy_checkout_root: checkout_alias, environment: {})
+
+      sources = Dir.chdir(repository) { loader.load }
+
+      assert_equal %i[process tool], sources.map(&:kind)
+      assert_equal 'repository', sources.lookup('VALUE').value
+    end
+  end
+
   def test_explicit_env_file_is_trusted_and_does_not_modify_environment
     with_tmpdir do |dir|
       env_file = write_env(dir.join('intentional.env'), "SLACK_BOT_TOKEN=xoxb-explicit\n")

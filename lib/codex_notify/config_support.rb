@@ -19,19 +19,15 @@ module CodexNotify
       CODEX_NOTIFY_MODE
     ].freeze
     REPOSITORY_CREDENTIAL_PATTERN = /\ASLACK_(?:BOT_TOKEN|CHANNEL)(?:__.*)?\z/
-    APP_ROOT = Pathname(__dir__).join('../..').expand_path
-
-    def app_root
-      APP_ROOT
-    end
-
     def resolve_env_paths(path = DEFAULT_ENV_PATH, legacy_checkout_root: nil)
       env_path = Pathname(path)
       return [env_path] if env_path.absolute?
 
       candidates = [Pathname(Dir.pwd).join(env_path)]
       candidates << Pathname(legacy_checkout_root).join(env_path) if legacy_checkout_root
-      candidates.map(&:expand_path).select(&:exist?).uniq
+      candidates.map(&:expand_path).select(&:exist?).each_with_object([]) do |candidate, paths|
+        paths << candidate unless paths.any? { |path| File.identical?(path, candidate) }
+      end
     end
 
     def load_env_file(path = DEFAULT_ENV_PATH, override: false, stderr: $stderr, legacy_checkout_root: nil)

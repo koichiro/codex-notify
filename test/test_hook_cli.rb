@@ -104,6 +104,79 @@ class CodexNotifyHookCLITest < Minitest::Test
     end
   end
 
+  def test_migrate_config_uses_checkout_source_without_reading_hook_input
+    with_tmpdir do |checkout_root|
+      with_tmpdir do |other_cwd|
+        source = checkout_root.join('.env')
+        source.write("SLACK_CHANNEL=CCHECKOUT\n")
+        source.chmod(0o600)
+        target = checkout_root.join('config.yml')
+        stdin = Object.new
+        stdin.define_singleton_method(:read) { |_limit| raise 'stdin must not be read' }
+
+        exit_code = Dir.chdir(other_cwd) do
+          hook_cli_main(
+            ['--migrate-config', '--config', target.to_s],
+            stdin:,
+            stdout: StringIO.new,
+            stderr: StringIO.new,
+            legacy_checkout_root: checkout_root
+          )
+        end
+
+        assert_equal 0, exit_code
+        assert_equal 'CCHECKOUT', YAML.safe_load_file(target.to_s).dig('default_destination', 'channel')
+        assert_empty @client.posts
+      end
+    end
+  end
+
+  def test_migrate_config_requires_explicit_source_outside_checkout_without_reading_input
+    with_tmpdir do |dir|
+      source = dir.join('.env')
+      source.write("SLACK_BOT_TOKEN=xoxb-must-not-load\n")
+      source.chmod(0o600)
+      stdin = Object.new
+      stdin.define_singleton_method(:read) { |_limit| raise 'stdin must not be read' }
+      stderr = StringIO.new
+
+      exit_code = Dir.chdir(dir) do
+        hook_cli_main(
+          ['--migrate-config', '--config', dir.join('config.yml').to_s],
+          stdin:,
+          stdout: StringIO.new,
+          stderr:
+        )
+      end
+
+      assert_equal 2, exit_code
+      assert_includes stderr.string, 'requires --env-file PATH'
+      refute_includes stderr.string, 'xoxb-must-not-load'
+      assert_empty @client.posts
+      refute dir.join('config.yml').exist?
+    end
+  end
+
+  def test_migrate_config_returns_configuration_error_for_missing_explicit_source
+    with_tmpdir do |dir|
+      stdin = Object.new
+      stdin.define_singleton_method(:read) { |_limit| raise 'stdin must not be read' }
+      stderr = StringIO.new
+
+      exit_code = hook_cli_main(
+        ['--migrate-config', '--env-file', dir.join('missing.env').to_s, '--config', dir.join('config.yml').to_s],
+        stdin:,
+        stdout: StringIO.new,
+        stderr:
+      )
+
+      assert_equal 2, exit_code
+      assert_includes stderr.string, 'legacy env file does not exist'
+      assert_empty @client.posts
+      refute dir.join('config.yml').exist?
+    end
+  end
+
   def test_invalid_destination_returns_configuration_error_without_posting_or_state_update
     with_tmpdir do |dir|
       ENV['SLACK_BOT_TOKEN'] = 'xoxb-token'

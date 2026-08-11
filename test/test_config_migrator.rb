@@ -8,11 +8,11 @@ require_relative 'test_helper'
 class CodexNotifyConfigMigratorTest < Minitest::Test
   ConfigMigrator = CodexNotify::ConfigMigrator
 
-  def test_migrates_tool_root_env_to_xdg_yaml_without_a_version
-    with_tmpdir do |app_root|
+  def test_migrates_checkout_root_env_to_xdg_yaml_without_a_version
+    with_tmpdir do |checkout_root|
       with_tmpdir do |xdg_home|
         source = write_env(
-          app_root.join('.env'),
+          checkout_root.join('.env'),
           <<~ENV
             CODEX_NOTIFY_ENV_POLICY=restricted
             SLACK_BOT_TOKEN=xoxb-sensitive-default
@@ -26,13 +26,13 @@ class CodexNotifyConfigMigratorTest < Minitest::Test
         stdout = StringIO.new
         stderr = StringIO.new
         migrator = ConfigMigrator.new(
-          app_root:,
+          legacy_checkout_root: checkout_root,
           environment: { 'XDG_CONFIG_HOME' => xdg_home.to_s },
           stdout:,
           stderr:
         )
 
-        assert_equal 0, migrator.run(env_path: '.env', env_explicit: false)
+        assert_equal 0, migrator.run
 
         target = xdg_home.join('codex-notify/config.yml')
         document = YAML.safe_load_file(target.to_s, aliases: false)
@@ -71,18 +71,93 @@ class CodexNotifyConfigMigratorTest < Minitest::Test
 
   def test_explicit_paths_override_default_source_and_target
     with_tmpdir do |dir|
+      write_env(dir.join('checkout/.env'), "SLACK_CHANNEL=CCHECKOUT\n")
       source = write_env(dir.join('legacy.env'), "SLACK_BOT_TOKEN=xoxb-token\nSLACK_CHANNEL=CEXPLICIT\n")
       target = dir.join('output/config.yml')
       migrator = ConfigMigrator.new(
-        app_root: dir.join('unused'),
+        legacy_checkout_root: dir.join('checkout'),
         environment: { 'XDG_CONFIG_HOME' => dir.join('unused-xdg').to_s },
         stdout: StringIO.new,
         stderr: StringIO.new
       )
 
-      migrator.run(env_path: source, env_explicit: true, config_path: target)
+      Dir.chdir(dir.join('checkout')) do
+        migrator.run(env_path: source, config_path: target)
+      end
 
       assert_equal 'CEXPLICIT', YAML.safe_load_file(target.to_s).dig('default_destination', 'channel')
+    end
+  end
+
+  def test_requires_an_explicit_source_outside_a_checkout
+    with_tmpdir do |dir|
+      source = write_env(dir.join('.env'), "SLACK_BOT_TOKEN=xoxb-must-not-load\n")
+      migrator = ConfigMigrator.new(
+        environment: { 'XDG_CONFIG_HOME' => dir.join('xdg').to_s },
+        stdout: StringIO.new,
+        stderr: StringIO.new
+      )
+
+      error = Dir.chdir(dir) { assert_raises(ConfigMigrator::Error) { migrator.run } }
+
+      assert_includes error.message, 'requires --env-file PATH'
+      refute_includes error.message, 'xoxb-must-not-load'
+      assert source.exist?
+      refute dir.join('xdg/codex-notify/config.yml').exist?
+    end
+  end
+
+  def test_explicit_relative_source_is_resolved_from_the_current_directory
+    with_tmpdir do |dir|
+      write_env(dir.join('legacy.env'), "SLACK_CHANNEL=CRELATIVE\n")
+      target = dir.join('config.yml')
+
+      Dir.chdir(dir) { new_migrator.run(env_path: 'legacy.env', config_path: target) }
+
+      assert_equal 'CRELATIVE', YAML.safe_load_file(target.to_s).dig('default_destination', 'channel')
+    end
+  end
+
+  def test_invalid_xdg_home_is_reported_as_a_migration_error
+    with_tmpdir do |dir|
+      source = write_env(dir.join('legacy.env'), "SLACK_CHANNEL=CVALID\n")
+      migrator = ConfigMigrator.new(
+        environment: { 'XDG_CONFIG_HOME' => 'relative' },
+        stdout: StringIO.new,
+        stderr: StringIO.new
+      )
+
+      error = assert_raises(ConfigMigrator::Error) { migrator.run(env_path: source) }
+
+      assert_includes error.message, 'XDG_CONFIG_HOME must be an absolute path'
+    end
+  end
+
+  def test_reports_a_missing_checkout_source_without_creating_output
+    with_tmpdir do |checkout_root|
+      target = checkout_root.join('config.yml')
+      migrator = ConfigMigrator.new(
+        legacy_checkout_root: checkout_root,
+        stdout: StringIO.new,
+        stderr: StringIO.new
+      )
+
+      error = assert_raises(ConfigMigrator::Error) { migrator.run(config_path: target) }
+
+      assert_includes error.message, 'legacy env file does not exist'
+      assert_includes error.message, checkout_root.join('.env').to_s
+      refute target.exist?
+    end
+  end
+
+  def test_rejects_a_directory_as_an_explicit_source
+    with_tmpdir do |dir|
+      error = assert_raises(ConfigMigrator::Error) do
+        new_migrator.run(env_path: dir, config_path: dir.join('config.yml'))
+      end
+
+      assert_includes error.message, 'legacy env path is not a file'
+      refute dir.join('config.yml').exist?
     end
   end
 
@@ -92,10 +167,10 @@ class CodexNotifyConfigMigratorTest < Minitest::Test
       target = dir.join('config.yml')
       target.write("existing: true\n")
       target.chmod(0o600)
-      migrator = new_migrator(dir)
+      migrator = new_migrator
 
       error = assert_raises(ConfigMigrator::Error) do
-        migrator.run(env_path: source, env_explicit: true, config_path: target)
+        migrator.run(env_path: source, config_path: target)
       end
 
       assert_includes error.message, 'already exists'
@@ -110,7 +185,7 @@ class CodexNotifyConfigMigratorTest < Minitest::Test
       target = dir.join('config.yml')
 
       error = assert_raises(ConfigMigrator::Error) do
-        new_migrator(dir).run(env_path: source, env_explicit: true, config_path: target)
+        new_migrator.run(env_path: source, config_path: target)
       end
 
       assert_includes error.message, 'must define channel'
@@ -127,9 +202,8 @@ class CodexNotifyConfigMigratorTest < Minitest::Test
       )
 
       error = assert_raises(ConfigMigrator::Error) do
-        new_migrator(dir).run(
+        new_migrator.run(
           env_path: source,
-          env_explicit: true,
           config_path: dir.join('config.yml')
         )
       end
@@ -143,9 +217,8 @@ class CodexNotifyConfigMigratorTest < Minitest::Test
       source = write_env(dir.join('.env'), "CODEX_NOTIFY_MODE=debug\n")
 
       error = assert_raises(ConfigMigrator::Error) do
-        new_migrator(dir).run(
+        new_migrator.run(
           env_path: source,
-          env_explicit: true,
           config_path: dir.join('config.yml')
         )
       end
@@ -158,9 +231,9 @@ class CodexNotifyConfigMigratorTest < Minitest::Test
     with_tmpdir do |dir|
       source = write_env(dir.join('.env'), "SLACK_BOT_TOKEN=xoxb-sensitive\n", mode: 0o644)
       stderr = StringIO.new
-      migrator = ConfigMigrator.new(app_root: dir, stdout: StringIO.new, stderr:)
+      migrator = ConfigMigrator.new(stdout: StringIO.new, stderr:)
 
-      migrator.run(env_path: source, env_explicit: true, config_path: dir.join('config.yml'))
+      migrator.run(env_path: source, config_path: dir.join('config.yml'))
 
       assert_includes stderr.string, 'permissions 0644'
       refute_includes stderr.string, 'xoxb-sensitive'
@@ -180,7 +253,7 @@ class CodexNotifyConfigMigratorTest < Minitest::Test
     path
   end
 
-  def new_migrator(app_root)
-    ConfigMigrator.new(app_root:, stdout: StringIO.new, stderr: StringIO.new)
+  def new_migrator
+    ConfigMigrator.new(stdout: StringIO.new, stderr: StringIO.new)
   end
 end
