@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'bundler'
 require 'open3'
 require 'rbconfig'
 require 'rubygems/package'
@@ -51,6 +52,26 @@ class CodexNotifyGemspecTest < Minitest::Test
     end
   end
 
+  def test_declares_only_dotenv_as_a_runtime_dependency
+    spec = load_gemspec
+    dependency = spec.runtime_dependencies.fetch(0)
+
+    assert_equal ['dotenv'], spec.runtime_dependencies.map(&:name)
+    assert_equal Gem::Requirement.new('~> 3.2'), dependency.requirement
+    assert_empty spec.development_dependencies
+  end
+
+  def test_gemfile_uses_gemspec_and_keeps_development_tools_in_non_runtime_groups
+    definition = Bundler::Definition.build(ROOT.join('Gemfile'), ROOT.join('Gemfile.lock'), nil)
+    dependencies = definition.dependencies.to_h { |dependency| [dependency.name, dependency.groups] }
+
+    assert_equal %w[codex-notify minitest rake], dependencies.keys.sort
+    assert_equal [:default], dependencies.fetch('codex-notify')
+    assert_equal %i[development test], dependencies.fetch('minitest')
+    assert_equal %i[development test], dependencies.fetch('rake')
+    refute dependencies.key?('dotenv')
+  end
+
   def test_package_files_match_the_explicit_allowlist
     files = load_gemspec.files
 
@@ -65,31 +86,59 @@ class CodexNotifyGemspecTest < Minitest::Test
   def test_builds_strictly_without_git_or_development_files
     Dir.mktmpdir('codex-notify-gem-test') do |tmpdir|
       dir = Pathname(tmpdir)
-      source_root = dir.join('source')
-      source_root.mkpath
-      copy_package_sources(source_root)
-      refute source_root.join('.git').exist?
-
-      package_path = dir.join("codex-notify-#{CodexNotify::VERSION}.gem")
-      env = { 'BUNDLE_GEMFILE' => nil, 'RUBYLIB' => nil, 'RUBYOPT' => nil }
-      stdout, stderr, status = Open3.capture3(
-        env,
-        RbConfig.ruby,
-        '-S',
-        'gem',
-        'build',
-        'codex-notify.gemspec',
-        '--strict',
-        '--output',
-        package_path.to_s,
-        chdir: source_root.to_s
-      )
-
-      assert status.success?, "gem build failed:\n#{stdout}\n#{stderr}"
-      assert package_path.file?
+      package_path = build_package(dir)
       package = Gem::Package.new(package_path.to_s)
       assert_equal expected_package_files, package.spec.files
       assert_equal expected_package_files, package.contents.sort
+    end
+  end
+
+  def test_installed_gem_loads_with_only_declared_runtime_dependencies
+    Dir.mktmpdir('codex-notify-install-test') do |tmpdir|
+      dir = Pathname(tmpdir)
+      package_path = build_package(dir)
+      gem_home = dir.join('gem-home')
+      dotenv_spec = Gem::Specification.find_by_name('dotenv', '~> 3.2')
+      dotenv_package = Pathname(dotenv_spec.cache_file)
+      assert dotenv_package.file?, "expected cached gem at #{dotenv_package}"
+
+      install_local_gem(dotenv_package, gem_home, dir)
+      install_local_gem(package_path, gem_home, dir)
+
+      installed_specs = gem_home.join('specifications').glob('*.gemspec').map { |path| path.basename.to_s }.sort
+      assert_equal [
+        "codex-notify-#{CodexNotify::VERSION}.gemspec",
+        "dotenv-#{dotenv_spec.version}.gemspec"
+      ], installed_specs
+
+      run_dir = dir.join('run')
+      run_dir.mkpath
+      script = <<~'RUBY'
+        require 'codex_notify'
+
+        feature = $LOADED_FEATURES.find { |path| path.end_with?('/codex_notify.rb') }
+        spec = Gem.loaded_specs.fetch('codex-notify')
+        gem_home = File.realpath(ENV.fetch('GEM_HOME'))
+        installed_root = File.realpath(spec.full_gem_path)
+        abort 'codex_notify was not loaded from its installed gem' unless feature&.start_with?(spec.full_gem_path)
+        abort 'codex_notify was not loaded from GEM_HOME' unless installed_root.start_with?("#{gem_home}/")
+        abort 'source checkout is present on the load path' if $LOAD_PATH.any? do |path|
+          File.expand_path(path).start_with?(ENV.fetch('SOURCE_ROOT'))
+        end
+
+        puts "#{CodexNotify::VERSION} #{Gem.loaded_specs.fetch('dotenv').version}"
+      RUBY
+      stdout, stderr, status = Open3.capture3(
+        isolated_gem_environment(gem_home, dir).merge('SOURCE_ROOT' => ROOT.to_s),
+        RbConfig.ruby,
+        '-e',
+        script,
+        chdir: run_dir.to_s
+      )
+
+      assert status.success?, "installed gem load failed:\n#{stdout}\n#{stderr}"
+      assert_equal "#{CodexNotify::VERSION} #{dotenv_spec.version}\n", stdout
+      assert_empty stderr
     end
   end
 
@@ -101,6 +150,62 @@ class CodexNotifyGemspecTest < Minitest::Test
 
   def expected_package_files
     (Dir.chdir(ROOT) { Dir['lib/**/*.rb'] } + FIXED_PACKAGE_FILES).sort
+  end
+
+  def build_package(dir)
+    source_root = dir.join('source')
+    source_root.mkpath
+    copy_package_sources(source_root)
+    refute source_root.join('.git').exist?
+
+    package_path = dir.join("codex-notify-#{CodexNotify::VERSION}.gem")
+    stdout, stderr, status = Open3.capture3(
+      { 'BUNDLE_GEMFILE' => nil, 'RUBYLIB' => nil, 'RUBYOPT' => nil },
+      RbConfig.ruby,
+      '-S',
+      'gem',
+      'build',
+      'codex-notify.gemspec',
+      '--strict',
+      '--output',
+      package_path.to_s,
+      chdir: source_root.to_s
+    )
+
+    assert status.success?, "gem build failed:\n#{stdout}\n#{stderr}"
+    assert package_path.file?
+    package_path
+  end
+
+  def install_local_gem(package_path, gem_home, dir)
+    stdout, stderr, status = Open3.capture3(
+      isolated_gem_environment(gem_home, dir),
+      RbConfig.ruby,
+      '-S',
+      'gem',
+      'install',
+      package_path.to_s,
+      '--local',
+      '--ignore-dependencies',
+      '--no-document',
+      '--install-dir',
+      gem_home.to_s
+    )
+
+    assert status.success?, "local gem install failed:\n#{stdout}\n#{stderr}"
+  end
+
+  def isolated_gem_environment(gem_home, dir)
+    {
+      'BUNDLE_GEMFILE' => nil,
+      'GEM_HOME' => gem_home.to_s,
+      'GEM_PATH' => gem_home.to_s,
+      'GEM_SPEC_CACHE' => dir.join('gem-spec-cache').to_s,
+      'HOME' => dir.join('home').to_s,
+      'RUBYLIB' => nil,
+      'RUBYOPT' => nil,
+      'XDG_CONFIG_HOME' => dir.join('xdg-config').to_s
+    }
   end
 
   def copy_package_sources(destination)

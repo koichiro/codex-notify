@@ -25,4 +25,6 @@ Gem::Specification.new do |spec|
   spec.bindir = 'bin'
   spec.executables = %w[codex-notify codex-notify-hook]
   spec.require_paths = ['lib']
+
+  spec.add_dependency 'dotenv', '~> 3.2'
 end
