@@ -5,10 +5,12 @@ require 'rubygems/package'
 require 'rubygems/package_task'
 require 'rake/testtask'
 
-gemspec = Gem::Specification.load(File.expand_path('codex-notify.gemspec', __dir__))
+gemspec_path = File.expand_path('codex-notify.gemspec', __dir__)
+gemspec = Gem::Specification.load(gemspec_path)
 raise 'failed to load codex-notify.gemspec' unless gemspec
 
 Gem::PackageTask.new(gemspec).define
+Rake::Task[File.join('pkg', gemspec.file_name)].enhance([gemspec_path])
 
 desc 'Build the gem and print its packaged file list'
 task 'package:contents' => :gem do
