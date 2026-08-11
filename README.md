@@ -55,7 +55,7 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
 
 ### Hook Mode
 
-1. Codex invokes `bin/codex-notify-hook` for configured hook events.
+1. Codex invokes `codex-notify-hook` for configured hook events.
 2. The hook command reads up to 1 MiB of JSON payload from standard input.
 3. The first `UserPromptSubmit` creates the per-session Slack thread and stores its thread timestamp.
 4. Later hook events for the same `session_id` are posted into the same thread.
@@ -177,18 +177,17 @@ When running from a source checkout, create the XDG YAML file explicitly from
 the checkout-root `.env`:
 
 ```bash
-bin/codex-notify --migrate-config
+bundle exec bin/codex-notify --migrate-config --env-file .env
 ```
 
 Outside a source checkout, including an installed-gem execution, select the
 legacy env file explicitly with `--env-file PATH`. The command never searches
-the gem installation directory or the current directory for an implicit
-migration source.
+the gem installation directory for an implicit migration source.
 
 To select both paths explicitly:
 
 ```bash
-bin/codex-notify --migrate-config \
+bundle exec bin/codex-notify --migrate-config \
   --env-file /path/to/legacy.env \
   --config /path/to/config.yml
 ```
@@ -232,22 +231,22 @@ codex --no-alt-screen resume
 Run `codex-notify` separately:
 
 ```bash
-./bin/codex-notify
+bundle exec bin/codex-notify
 ```
 
-The entrypoint loads `bundler/setup`, so `bundle exec` is not required after `bundle install`.
-If `rbenv` is available, the entrypoint re-execs itself with the Ruby version from this project's `.ruby-version`, even when launched from another repository.
+Checkout commands use Bundler to activate the local gem. Installed executables
+instead use the active Ruby environment's normal gem loading.
 
 Monitor a specific session file:
 
 ```bash
-./bin/codex-notify --session-file ~/.codex/sessions/2026/03/10/rollout-....jsonl
+bundle exec bin/codex-notify --session-file ~/.codex/sessions/2026/03/10/rollout-....jsonl
 ```
 
 Process the current contents once and exit:
 
 ```bash
-./bin/codex-notify --once
+bundle exec bin/codex-notify --once
 ```
 
 In normal follow mode, `codex-notify` starts from the end of the session log and only posts prompts and responses appended after the monitor starts.
@@ -255,7 +254,7 @@ In normal follow mode, `codex-notify` starts from the end of the session log and
 With explicit non-secret flags:
 
 ```bash
-./bin/codex-notify \
+bundle exec bin/codex-notify \
   --channel "$SLACK_CHANNEL" \
   --user-name "koichiro" \
   --title "Codex run: my-project" \
@@ -265,19 +264,19 @@ With explicit non-secret flags:
 Including tool events:
 
 ```bash
-./bin/codex-notify --include-tools
+bundle exec bin/codex-notify --include-tools
 ```
 
 Using a custom env file:
 
 ```bash
-./bin/codex-notify --env-file .env.local
+bundle exec bin/codex-notify --env-file .env.local
 ```
 
 Using a custom sessions directory:
 
 ```bash
-./bin/codex-notify --sessions-dir ~/.codex/sessions
+bundle exec bin/codex-notify --sessions-dir ~/.codex/sessions
 ```
 
 Without `--no-alt-screen`, Codex switches to its alternate screen UI and the execution logs used by this tool are not emitted in the expected form.
@@ -301,15 +300,19 @@ hooks = true
 
 Hooks are enabled by default in current Codex releases, so this setting is only needed if hooks were previously disabled. `codex_hooks` is a deprecated compatibility alias; use `hooks` for new configuration.
 
-Recommended install location:
+Build and install the current package into the active Ruby environment, then
+discover the executable path:
 
 ```bash
-mkdir -p /home/codex-notify/bin
-cp /path/to/codex-notify/bin/codex-notify-hook /home/codex-notify/bin/codex-notify-hook
-chmod +x /home/codex-notify/bin/codex-notify-hook
+bundle exec rake gem
+gem install pkg/codex-notify-0.1.0.gem
+command -v codex-notify-hook
 ```
 
-Use an absolute path for hook commands. Codex runs hooks from the current project working directory, so relative paths are fragile when you want to share one hook command across multiple repositories.
+Use the returned absolute path for hook commands. Codex runs hooks from the
+current project working directory, so relative paths are fragile when you want
+to share one hook command across multiple repositories. The examples below use
+`/absolute/path/to/codex-notify-hook` as a placeholder.
 
 Example hook config:
 
@@ -321,7 +324,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/bin/codex-notify-hook --event SessionStart"
+            "command": "/absolute/path/to/codex-notify-hook --event SessionStart"
           }
         ]
       }
@@ -331,7 +334,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/bin/codex-notify-hook --event UserPromptSubmit"
+            "command": "/absolute/path/to/codex-notify-hook --event UserPromptSubmit"
           }
         ]
       }
@@ -342,7 +345,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/bin/codex-notify-hook --event PreToolUse"
+            "command": "/absolute/path/to/codex-notify-hook --event PreToolUse"
           }
         ]
       }
@@ -353,7 +356,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/bin/codex-notify-hook --event PostToolUse"
+            "command": "/absolute/path/to/codex-notify-hook --event PostToolUse"
           }
         ]
       }
@@ -363,7 +366,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/bin/codex-notify-hook --event PermissionRequest"
+            "command": "/absolute/path/to/codex-notify-hook --event PermissionRequest"
           }
         ]
       }
@@ -373,7 +376,7 @@ Example hook config:
         "hooks": [
           {
             "type": "command",
-            "command": "/home/codex-notify/bin/codex-notify-hook --event Stop"
+            "command": "/absolute/path/to/codex-notify-hook --event Stop"
           }
         ]
       }
@@ -385,7 +388,7 @@ Example hook config:
 The hook command reads each event payload from standard input:
 
 ```bash
-/home/codex-notify/bin/codex-notify-hook --event UserPromptSubmit
+/absolute/path/to/codex-notify-hook --event UserPromptSubmit
 ```
 
 Useful options:
@@ -541,9 +544,9 @@ Hook mode defaults to `<state-file>.outbox`; log-tail mode defaults to
 and path used by the normal command:
 
 ```bash
-./bin/codex-notify-hook --outbox-status
-./bin/codex-notify-hook --drain-outbox
-./bin/codex-notify-hook --retry-outbox DELIVERY_ID
+/absolute/path/to/codex-notify-hook --outbox-status
+/absolute/path/to/codex-notify-hook --drain-outbox
+/absolute/path/to/codex-notify-hook --retry-outbox DELIVERY_ID
 ```
 
 Status output contains IDs, timestamps, statuses, and sanitized error codes,
@@ -602,8 +605,7 @@ Notes:
 - Current hook payloads provide Bash commands under `tool_input.command` and completed tool results under `tool_response`. Legacy payload shapes remain supported by `codex-notify-hook`.
 - In hook mode, a prompt containing only `---` clears the saved Slack thread for that Codex session. The next user prompt starts a new Slack thread.
 - If Slack rejects a saved `thread_ts` with a thread-not-found style error, hook mode now clears that saved value automatically and recreates the thread on the current event.
-- This executable pins `BUNDLE_GEMFILE` to its own project, so it can be launched from other repositories without resolving the wrong `Gemfile`.
-- If `rbenv` is installed, the executable also re-execs with the Ruby version declared in this project's `.ruby-version`, so another repository's `.ruby-version` does not take precedence.
+- Installed executables load `codex_notify` through the active Ruby environment and do not depend on a checkout `Gemfile`, `.ruby-version`, or `lib/` path.
 - The hook implementation keeps normal successful runs quiet so Codex does not show extra debug-style output from the hook itself.
 - When using the macOS ChatGPT/Codex app, use an absolute hook command path and keep credentials in the XDG config file. GUI apps may not inherit the same `PATH` or environment variables as an interactive shell, so the default `~/.config/codex-notify/config.yml` path is usually the most predictable choice. Also verify that the command can locate Ruby, Bundler, and the installed gems.
 
@@ -622,6 +624,13 @@ rake
 The test suite uses `minitest`, runs through `rake`, and enforces 90% line coverage for files under `lib/`.
 
 Ruby 3.4 or newer is supported. CI covers the minimum supported 3.4 series and the 4.0 series used by the project's `.ruby-version`.
+
+Run either executable from a source checkout through Bundler:
+
+```bash
+bundle exec bin/codex-notify --help
+bundle exec bin/codex-notify-hook --help
+```
 
 ### Gem packaging
 
