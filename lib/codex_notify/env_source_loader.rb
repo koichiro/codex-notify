@@ -45,8 +45,8 @@ module CodexNotify
     include ConfigSupport
     private(*ConfigSupport.instance_methods(false))
 
-    def initialize(app_root: ConfigSupport::APP_ROOT, environment: ENV, stderr: $stderr, config_loader: nil)
-      @app_root = Pathname(app_root).expand_path
+    def initialize(legacy_checkout_root: nil, environment: ENV, stderr: $stderr, config_loader: nil)
+      @legacy_checkout_root = Pathname(legacy_checkout_root).expand_path if legacy_checkout_root
       @environment = environment
       @stderr = stderr
       @config_loader = config_loader || TrustedConfigLoader.new(environment:, stderr:)
@@ -54,7 +54,7 @@ module CodexNotify
 
     def load(path: ConfigSupport::DEFAULT_ENV_PATH, explicit: false, config_path: nil)
       process = Source.new(kind: :process, path: nil, values: @environment.to_h)
-      files = resolve_env_paths(path).map { |env_path| load_file(env_path, explicit:) }
+      files = resolve_env_paths(path, legacy_checkout_root:).map { |env_path| load_file(env_path, explicit:) }
       configs = @config_loader.load(explicit_path: config_path).map do |config|
         Source.new(kind: config.kind, path: config.path, values: config.values)
       end
@@ -70,7 +70,7 @@ module CodexNotify
 
     private
 
-    attr_reader :app_root
+    attr_reader :legacy_checkout_root
 
     def load_file(path, explicit:)
       ConfigDiagnostics.warn_if_env_file_insecure(path, stderr: @stderr)
@@ -82,8 +82,10 @@ module CodexNotify
     def source_kind(path, explicit:)
       return :explicit if explicit
 
-      tool_env_path = app_root.join(ConfigSupport::DEFAULT_ENV_PATH).expand_path
-      path.expand_path == tool_env_path ? :tool : :repository
+      return :repository unless legacy_checkout_root
+
+      checkout_env_path = legacy_checkout_root.join(ConfigSupport::DEFAULT_ENV_PATH)
+      path.expand_path == checkout_env_path ? :tool : :repository
     end
   end
 end

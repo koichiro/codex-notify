@@ -28,8 +28,8 @@ module CodexNotify
       SlackClient.new(token:, channel:).post(text, thread_ts:)
     end
 
-    def main(argv = nil, stdin: nil, stderr: $stderr, stdout: $stdout)
-      args = CodexNotify::Config.parse_args(argv, stderr:)
+    def main(argv = nil, stdin: nil, stderr: $stderr, stdout: $stdout, legacy_checkout_root: nil)
+      args = CodexNotify::Config.parse_args(argv, stderr:, legacy_checkout_root:)
       if args.migrate_config
         return ConfigMigrator.new(app_root: Config.app_root, stdout:, stderr:).run(
           env_path: args.env_file,

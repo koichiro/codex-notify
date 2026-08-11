@@ -8,11 +8,11 @@ class CodexNotifyEnvSourceLoaderTest < Minitest::Test
   EnvSourceLoader = CodexNotify::EnvSourceLoader
 
   def test_load_discovers_and_classifies_sources_in_precedence_order
-    with_tmpdir do |app_root|
+    with_tmpdir do |checkout_root|
       with_tmpdir do |repository|
-        write_env(app_root.join('.env'), "VALUE=tool\nTOOL_ONLY=yes\n")
+        write_env(checkout_root.join('.env'), "VALUE=tool\nTOOL_ONLY=yes\n")
         write_env(repository.join('.env'), "VALUE=repository\n")
-        loader = env_loader(app_root:, environment: { 'VALUE' => 'process' })
+        loader = env_loader(legacy_checkout_root: checkout_root, environment: { 'VALUE' => 'process' })
 
         sources = Dir.chdir(repository) { loader.load }
 
@@ -22,6 +22,36 @@ class CodexNotifyEnvSourceLoaderTest < Minitest::Test
         assert_equal :process, result.source.kind
         assert_equal 'yes', sources.lookup('TOOL_ONLY').value
       end
+    end
+  end
+
+  def test_load_does_not_discover_an_implicit_library_root
+    with_tmpdir do |installation_root|
+      with_tmpdir do |repository|
+        write_env(installation_root.join('.env'), "INSTALL_ONLY=must-not-load\n")
+        write_env(repository.join('.env'), "REPOSITORY_ONLY=yes\n")
+
+        loader = env_loader(environment: {})
+        loader.define_singleton_method(:app_root) { installation_root }
+
+        sources = Dir.chdir(repository) { loader.load }
+
+        assert_equal %i[process repository], sources.map(&:kind)
+        assert_equal 'yes', sources.lookup('REPOSITORY_ONLY').value
+        assert_nil sources.lookup('INSTALL_ONLY')
+      end
+    end
+  end
+
+  def test_load_deduplicates_repository_and_checkout_paths
+    with_tmpdir do |repository|
+      write_env(repository.join('.env'), "VALUE=repository\n")
+      loader = env_loader(legacy_checkout_root: repository, environment: {})
+
+      sources = Dir.chdir(repository) { loader.load }
+
+      assert_equal %i[process tool], sources.map(&:kind)
+      assert_equal 'repository', sources.lookup('VALUE').value
     end
   end
 

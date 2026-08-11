@@ -14,8 +14,8 @@ module CodexNotify
     module_function
 
     def main(argv = nil, stdin: $stdin, stderr: $stderr, stdout: $stdout,
-             runner_factory: HookRunner.method(:new))
-      args = HookConfig.parse_args(argv, stderr:)
+             runner_factory: HookRunner.method(:new), legacy_checkout_root: nil)
+      args = HookConfig.parse_args(argv, stderr:, legacy_checkout_root:)
 
       if args.migrate_config
         return ConfigMigrator.new(app_root: HookConfig.app_root, stdout:, stderr:).run(

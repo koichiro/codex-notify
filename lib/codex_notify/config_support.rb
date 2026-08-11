@@ -25,15 +25,17 @@ module CodexNotify
       APP_ROOT
     end
 
-    def resolve_env_paths(path = DEFAULT_ENV_PATH)
+    def resolve_env_paths(path = DEFAULT_ENV_PATH, legacy_checkout_root: nil)
       env_path = Pathname(path)
       return [env_path] if env_path.absolute?
 
-      [Pathname(Dir.pwd).join(env_path), app_root.join(env_path)].select(&:exist?).uniq
+      candidates = [Pathname(Dir.pwd).join(env_path)]
+      candidates << Pathname(legacy_checkout_root).join(env_path) if legacy_checkout_root
+      candidates.map(&:expand_path).select(&:exist?).uniq
     end
 
-    def load_env_file(path = DEFAULT_ENV_PATH, override: false, stderr: $stderr)
-      env_paths = resolve_env_paths(path)
+    def load_env_file(path = DEFAULT_ENV_PATH, override: false, stderr: $stderr, legacy_checkout_root: nil)
+      env_paths = resolve_env_paths(path, legacy_checkout_root:)
       return if env_paths.empty?
 
       env_paths.each { |env_path| ConfigDiagnostics.warn_if_env_file_insecure(env_path, stderr:) }

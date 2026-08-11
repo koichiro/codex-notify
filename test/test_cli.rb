@@ -26,6 +26,32 @@ class CodexNotifyCLITest < Minitest::Test
     assert_includes err.string, 'need --token/--channel'
   end
 
+  def test_main_forwards_an_explicit_legacy_checkout_root
+    with_tmpdir do |checkout_root|
+      with_tmpdir do |sessions_dir|
+        with_tmpdir do |xdg_home|
+          ENV.keys.grep(/\A(?:SLACK_|CODEX_NOTIFY_)/).each { |key| ENV.delete(key) }
+          ENV['XDG_CONFIG_HOME'] = xdg_home.to_s
+          env_file = checkout_root.join('.env')
+          env_file.write("SLACK_BOT_TOKEN=xoxb-checkout\nSLACK_CHANNEL=CCHECKOUT\n")
+          env_file.chmod(0o600)
+          stderr = StringIO.new
+
+          exit_code = CLI.main(
+            ['--sessions-dir', sessions_dir.to_s, '--once'],
+            stderr:,
+            legacy_checkout_root: checkout_root
+          )
+
+          assert_equal 2, exit_code
+          assert_includes stderr.string, 'no Codex session log file found'
+          assert_includes stderr.string, 'legacy codex-notify env file'
+          refute_includes stderr.string, 'xoxb-checkout'
+        end
+      end
+    end
+  end
+
   def test_main_returns_configuration_error_for_missing_explicit_config
     with_tmpdir do |dir|
       err = StringIO.new
