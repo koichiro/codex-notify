@@ -19,15 +19,15 @@ module CodexNotify
 
     class Error < StandardError; end
 
-    def initialize(app_root:, environment: ENV, stdout: $stdout, stderr: $stderr)
-      @app_root = Pathname(app_root).expand_path
+    def initialize(legacy_checkout_root: nil, environment: ENV, stdout: $stdout, stderr: $stderr)
+      @legacy_checkout_root = Pathname(legacy_checkout_root).expand_path if legacy_checkout_root
       @environment = environment
       @stdout = stdout
       @stderr = stderr
     end
 
-    def run(env_path:, env_explicit:, config_path: nil)
-      source = source_path(env_path, explicit: env_explicit)
+    def run(env_path: nil, config_path: nil)
+      source = source_path(env_path)
       target = target_path(config_path)
       validate_paths(source, target)
 
@@ -38,16 +38,22 @@ module CodexNotify
       @stdout.puts("Created trusted config file #{target}.")
       @stdout.puts('Verify the destination settings, then remove migrated secrets from the legacy env file manually.')
       0
+    rescue TrustedConfigLoader::Error => e
+      raise Error, e.message
     rescue SystemCallError => e
       raise Error, "could not migrate configuration: #{e.class}"
     end
 
     private
 
-    def source_path(path, explicit:)
-      return Pathname(path).expand_path if explicit
+    def source_path(path)
+      return Pathname(path).expand_path if path
 
-      @app_root.join('.env')
+      unless @legacy_checkout_root
+        raise Error, '--migrate-config requires --env-file PATH outside a source checkout'
+      end
+
+      @legacy_checkout_root.join('.env')
     end
 
     def target_path(path)

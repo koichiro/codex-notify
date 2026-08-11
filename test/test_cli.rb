@@ -72,16 +72,77 @@ class CodexNotifyCLITest < Minitest::Test
       stdout = StringIO.new
       stderr = StringIO.new
 
-      exit_code = CLI.main(
-        ['--migrate-config', '--env-file', source.to_s, '--config', target.to_s],
-        stdout:,
-        stderr:
-      )
+      with_tmpdir do |other_cwd|
+        exit_code = Dir.chdir(other_cwd) do
+          CLI.main(
+            ['--migrate-config', '--env-file', source.to_s, '--config', target.to_s],
+            stdout:,
+            stderr:
+          )
+        end
 
-      assert_equal 0, exit_code
+        assert_equal 0, exit_code
+      end
       assert_equal 'CMIGRATED', YAML.safe_load_file(target.to_s).dig('default_destination', 'channel')
       refute_includes stdout.string, 'xoxb-sensitive'
       assert_empty stderr.string
+    end
+  end
+
+  def test_migrate_config_uses_checkout_source_when_explicitly_available
+    with_tmpdir do |checkout_root|
+      with_tmpdir do |other_cwd|
+        source = checkout_root.join('.env')
+        source.write("SLACK_CHANNEL=CCHECKOUT\n")
+        source.chmod(0o600)
+        target = checkout_root.join('config.yml')
+
+        exit_code = Dir.chdir(other_cwd) do
+          CLI.main(
+            ['--migrate-config', '--config', target.to_s],
+            stdout: StringIO.new,
+            stderr: StringIO.new,
+            legacy_checkout_root: checkout_root
+          )
+        end
+
+        assert_equal 0, exit_code
+        assert_equal 'CCHECKOUT', YAML.safe_load_file(target.to_s).dig('default_destination', 'channel')
+      end
+    end
+  end
+
+  def test_migrate_config_requires_explicit_source_outside_checkout
+    with_tmpdir do |dir|
+      source = dir.join('.env')
+      source.write("SLACK_BOT_TOKEN=xoxb-must-not-load\n")
+      source.chmod(0o600)
+      stderr = StringIO.new
+
+      exit_code = Dir.chdir(dir) do
+        CLI.main(['--migrate-config', '--config', dir.join('config.yml').to_s], stdout: StringIO.new, stderr:)
+      end
+
+      assert_equal 2, exit_code
+      assert_includes stderr.string, 'requires --env-file PATH'
+      refute_includes stderr.string, 'xoxb-must-not-load'
+      refute dir.join('config.yml').exist?
+    end
+  end
+
+  def test_migrate_config_returns_configuration_error_for_missing_explicit_source
+    with_tmpdir do |dir|
+      stderr = StringIO.new
+
+      exit_code = CLI.main(
+        ['--migrate-config', '--env-file', dir.join('missing.env').to_s, '--config', dir.join('config.yml').to_s],
+        stdout: StringIO.new,
+        stderr:
+      )
+
+      assert_equal 2, exit_code
+      assert_includes stderr.string, 'legacy env file does not exist'
+      refute dir.join('config.yml').exist?
     end
   end
 

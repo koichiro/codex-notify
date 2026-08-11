@@ -18,9 +18,9 @@ module CodexNotify
       args = HookConfig.parse_args(argv, stderr:, legacy_checkout_root:)
 
       if args.migrate_config
-        return ConfigMigrator.new(app_root: HookConfig.app_root, stdout:, stderr:).run(
-          env_path: args.env_file,
-          env_explicit: args.env_file_explicit,
+        env_path = args.env_file if args.env_file_explicit
+        return ConfigMigrator.new(legacy_checkout_root:, stdout:, stderr:).run(
+          env_path:,
           config_path: args.config_file
         )
       end

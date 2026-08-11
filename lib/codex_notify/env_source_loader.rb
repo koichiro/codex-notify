@@ -85,7 +85,7 @@ module CodexNotify
       return :repository unless legacy_checkout_root
 
       checkout_env_path = legacy_checkout_root.join(ConfigSupport::DEFAULT_ENV_PATH)
-      path.expand_path == checkout_env_path ? :tool : :repository
+      File.identical?(path, checkout_env_path) ? :tool : :repository
     end
   end
 end

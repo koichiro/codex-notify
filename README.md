@@ -173,11 +173,17 @@ aliases, arbitrary Ruby objects, or symbols.
 
 ### Migrating a legacy env file
 
-Create the XDG YAML file explicitly from the codex-notify project-root `.env`:
+When running from a source checkout, create the XDG YAML file explicitly from
+the checkout-root `.env`:
 
 ```bash
 bin/codex-notify --migrate-config
 ```
+
+Outside a source checkout, including an installed-gem execution, select the
+legacy env file explicitly with `--env-file PATH`. The command never searches
+the gem installation directory or the current directory for an implicit
+migration source.
 
 To select both paths explicitly:
 
