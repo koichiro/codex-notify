@@ -31,3 +31,6 @@ jobs:
 
       - name: Run tests
         run: bundle exec rake
+
+      - name: Verify installed gem package
+        run: bundle exec rake package:verify

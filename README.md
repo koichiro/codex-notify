@@ -639,11 +639,13 @@ uses version `0.1.0`. Before 1.0, patch releases contain compatible fixes and
 minor releases may contain features or compatibility changes. Releases from
 1.0 onward follow Semantic Versioning.
 
-Build the gem locally and inspect its packaged file list:
+Build the gem locally, inspect its packaged file list, and verify an isolated
+installation outside the source checkout:
 
 ```bash
 bundle exec rake gem
 bundle exec rake package:contents
+bundle exec rake package:verify
 ```
 
 Build artifacts are written under `pkg/` and must not be committed. Publishing
