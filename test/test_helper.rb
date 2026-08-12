@@ -9,14 +9,62 @@ require 'pathname'
 require 'tmpdir'
 require 'fileutils'
 
-TEST_XDG_CONFIG_HOME = Pathname(Dir.mktmpdir('codex-notify-test-config'))
-ENV['XDG_CONFIG_HOME'] = TEST_XDG_CONFIG_HOME.to_s
-
 ROOT = Pathname(__dir__).join('..').expand_path
+ORIGINAL_TEST_CWD = Pathname(Dir.pwd).expand_path
+TEST_SANDBOX_ROOT = Pathname(Dir.mktmpdir('codex-notify-test')).realpath
+TEST_HOME = TEST_SANDBOX_ROOT.join('home')
+TEST_XDG_CONFIG_HOME = TEST_SANDBOX_ROOT.join('xdg-config')
+TEST_WORKING_DIRECTORIES = TEST_SANDBOX_ROOT.join('working-directories')
+[TEST_HOME, TEST_XDG_CONFIG_HOME, TEST_WORKING_DIRECTORIES].each(&:mkpath)
+
+module TestEnvironment
+  module_function
+
+  def configuration_key?(key)
+    key.start_with?('SLACK_', 'CODEX_NOTIFY_') || %w[CODEX_HOOK_EVENT CODEX_PROMPT].include?(key)
+  end
+
+  def isolated_environment
+    ENV.to_h.reject { |key, _value| configuration_key?(key) }.merge(
+      'HOME' => TEST_HOME.to_s,
+      'XDG_CONFIG_HOME' => TEST_XDG_CONFIG_HOME.to_s
+    )
+  end
+
+  def restore!
+    Dir.chdir(ORIGINAL_TEST_CWD)
+    FileUtils.remove_entry(TEST_SANDBOX_ROOT) if TEST_SANDBOX_ROOT.exist?
+  end
+end
+
+ISOLATED_TEST_ENV = TestEnvironment.isolated_environment.freeze
+ENV.replace(ISOLATED_TEST_ENV)
+
 $LOAD_PATH.unshift(ROOT.join('lib').to_s)
 
 require 'codex_notify'
 require 'codex_notify/cli'
+
+module HermeticTestCase
+  def before_setup
+    ENV.replace(ISOLATED_TEST_ENV)
+    @test_working_directory = Pathname(Dir.mktmpdir('case-', TEST_WORKING_DIRECTORIES.to_s))
+    Dir.chdir(@test_working_directory)
+    super
+  end
+
+  def after_teardown
+    super
+  ensure
+    Dir.chdir(ORIGINAL_TEST_CWD)
+    ENV.replace(ISOLATED_TEST_ENV)
+    if @test_working_directory&.exist?
+      FileUtils.remove_entry(@test_working_directory)
+    end
+  end
+end
+
+Minitest::Test.prepend(HermeticTestCase)
 
 module CoverageReport
   THRESHOLD = 90.0
@@ -38,5 +86,6 @@ end
 
 Minitest.after_run do
   CoverageReport.report!
-  FileUtils.remove_entry(TEST_XDG_CONFIG_HOME) if TEST_XDG_CONFIG_HOME.exist?
+ensure
+  TestEnvironment.restore!
 end
