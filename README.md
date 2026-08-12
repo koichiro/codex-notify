@@ -112,6 +112,44 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
     └── test_hook_cli.rb
 ```
 
+## Installation
+
+codex-notify requires Ruby 3.4 or newer. Until publishing to RubyGems.org is
+separately approved, install a released or locally built gem package into the
+active Ruby environment:
+
+```bash
+gem install /path/to/codex-notify-X.Y.Z.gem
+```
+
+The gem installs both commands. Confirm their locations and the installed
+version from the same Ruby environment that will run them:
+
+```bash
+command -v codex-notify
+command -v codex-notify-hook
+gem list --local --exact codex-notify
+```
+
+To upgrade, install the newer package into that Ruby environment:
+
+```bash
+gem install /path/to/codex-notify-NEW_VERSION.gem
+```
+
+To uninstall it:
+
+```bash
+gem uninstall codex-notify
+```
+
+Installation, upgrades, and uninstallation do not rewrite Codex Hook
+configuration, the XDG configuration file, Hook thread state, or the durable
+outbox. Ruby managers such as rbenv and asdf normally keep separate gems for
+each Ruby installation. After switching or upgrading Ruby, reinstall the gem,
+rerun `command -v codex-notify-hook`, and update Hook configuration if the
+absolute executable path changed.
+
 ## Configuration
 
 Create the trusted user configuration under the XDG configuration directory. When
@@ -187,9 +225,16 @@ the gem installation directory for an implicit migration source.
 To select both paths explicitly:
 
 ```bash
-bundle exec bin/codex-notify --migrate-config \
+codex-notify --migrate-config \
   --env-file /path/to/legacy.env \
   --config /path/to/config.yml
+```
+
+With the default XDG output path, an installed command can migrate an explicit
+legacy file with:
+
+```bash
+codex-notify --migrate-config --env-file /path/to/legacy.env
 ```
 
 The migration copies only `CODEX_NOTIFY_ENV_POLICY`, the default Slack token
@@ -203,12 +248,6 @@ credential values. After reviewing the generated YAML and verifying routing in
 a new Codex session, remove migrated secrets from the legacy file manually.
 
 ## Usage
-
-Install dependencies first:
-
-```bash
-bundle install
-```
 
 ### Log Tail Mode
 
@@ -231,22 +270,19 @@ codex --no-alt-screen resume
 Run `codex-notify` separately:
 
 ```bash
-bundle exec bin/codex-notify
+codex-notify
 ```
-
-Checkout commands use Bundler to activate the local gem. Installed executables
-instead use the active Ruby environment's normal gem loading.
 
 Monitor a specific session file:
 
 ```bash
-bundle exec bin/codex-notify --session-file ~/.codex/sessions/2026/03/10/rollout-....jsonl
+codex-notify --session-file ~/.codex/sessions/2026/03/10/rollout-....jsonl
 ```
 
 Process the current contents once and exit:
 
 ```bash
-bundle exec bin/codex-notify --once
+codex-notify --once
 ```
 
 In normal follow mode, `codex-notify` starts from the end of the session log and only posts prompts and responses appended after the monitor starts.
@@ -254,7 +290,7 @@ In normal follow mode, `codex-notify` starts from the end of the session log and
 With explicit non-secret flags:
 
 ```bash
-bundle exec bin/codex-notify \
+codex-notify \
   --channel "$SLACK_CHANNEL" \
   --user-name "koichiro" \
   --title "Codex run: my-project" \
@@ -264,19 +300,19 @@ bundle exec bin/codex-notify \
 Including tool events:
 
 ```bash
-bundle exec bin/codex-notify --include-tools
+codex-notify --include-tools
 ```
 
 Using a custom env file:
 
 ```bash
-bundle exec bin/codex-notify --env-file .env.local
+codex-notify --env-file .env.local
 ```
 
 Using a custom sessions directory:
 
 ```bash
-bundle exec bin/codex-notify --sessions-dir ~/.codex/sessions
+codex-notify --sessions-dir ~/.codex/sessions
 ```
 
 Without `--no-alt-screen`, Codex switches to its alternate screen UI and the execution logs used by this tool are not emitted in the expected form.
@@ -300,19 +336,16 @@ hooks = true
 
 Hooks are enabled by default in current Codex releases, so this setting is only needed if hooks were previously disabled. `codex_hooks` is a deprecated compatibility alias; use `hooks` for new configuration.
 
-Build and install the current package into the active Ruby environment, then
-discover the executable path:
+Discover the installed Hook executable from the active Ruby environment:
 
 ```bash
-bundle exec rake gem
-gem install pkg/codex-notify-0.1.0.gem
 command -v codex-notify-hook
 ```
 
-Use the returned absolute path for hook commands. Codex runs hooks from the
-current project working directory, so relative paths are fragile when you want
-to share one hook command across multiple repositories. The examples below use
-`/absolute/path/to/codex-notify-hook` as a placeholder.
+Confirm that the result is an absolute path and use it for every Hook command.
+Codex runs hooks from the current project working directory, so relative paths
+are fragile when one Hook definition is used across multiple repositories. The
+examples below use `/absolute/path/to/codex-notify-hook` as a placeholder.
 
 Example hook config:
 
@@ -408,6 +441,27 @@ Useful options:
 
 `--token` remains available for compatibility but is deprecated. Prefer the
 default or explicit `0600` YAML config file.
+
+#### Migrating a checkout-based Hook
+
+Existing Hook definitions may invoke a checkout path such as
+`/path/to/codex-notify/bin/codex-notify-hook`. Migrate them without changing
+their routing or state:
+
+1. Install the gem into the Ruby environment that will run the Hook.
+2. Run `command -v codex-notify-hook` and record the returned absolute path.
+3. Replace the checkout executable in every event under `~/.codex/hooks.json`
+   or `<repo>/.codex/hooks.json`. Preserve arguments such as `--event`,
+   `--destination`, `--state-file`, and `--outbox-dir`.
+4. Restart Codex, inspect the changed definition with `/hooks`, and trust it.
+5. Start a new Codex session and verify notification routing before retiring
+   the checkout path.
+
+This path change does not move or rewrite the XDG `config.yml`, Hook thread
+state, outbox, or Slack destination settings. If credentials still live in a
+checkout `.env`, migrate them separately with
+`--migrate-config --env-file PATH`; installed-gem execution never searches its
+installation directory for a legacy `.env`.
 
 ### Hook data and destination
 
@@ -607,19 +661,27 @@ Notes:
 - If Slack rejects a saved `thread_ts` with a thread-not-found style error, hook mode now clears that saved value automatically and recreates the thread on the current event.
 - Installed executables load `codex_notify` through the active Ruby environment and do not depend on a checkout `Gemfile`, `.ruby-version`, or `lib/` path.
 - The hook implementation keeps normal successful runs quiet so Codex does not show extra debug-style output from the hook itself.
-- When using the macOS ChatGPT/Codex app, use an absolute hook command path and keep credentials in the XDG config file. GUI apps may not inherit the same `PATH` or environment variables as an interactive shell, so the default `~/.config/codex-notify/config.yml` path is usually the most predictable choice. Also verify that the command can locate Ruby, Bundler, and the installed gems.
+- When using the macOS ChatGPT/Codex app, use an absolute hook command path and keep credentials in the XDG config file. GUI apps may not inherit the same `PATH` or environment variables as an interactive shell, so the default `~/.config/codex-notify/config.yml` path is usually the most predictable choice. The executable uses Ruby from its shebang, so verify that the GUI environment can resolve the intended Ruby. A Ruby-manager shim or an absolute gem executable path may change after a Ruby upgrade; reinstall the gem, rediscover the path, and update and retrust the Hook definition when necessary. Installed execution does not require checkout-local Bundler setup.
 
 Hook mode does not require `--no-alt-screen`, because it does not depend on session-log tailing.
 
 ## Development
 
+Install development dependencies in a source checkout:
+
+```bash
+bundle install
+```
+
 Run tests:
 
 ```bash
-rake
+bundle exec rake
 ```
 
-`Rakefile` also loads `bundler/setup`, so `rake` can be run without `bundle exec` after `bundle install`.
+`Rakefile` also loads `bundler/setup`, so `rake` can be run without `bundle
+exec` after `bundle install`. The explicit form above makes it clear that these
+are checkout development commands.
 
 The test suite uses `minitest`, runs through `rake`, and enforces 90% line coverage for files under `lib/`.
 
@@ -632,6 +694,11 @@ bundle exec bin/codex-notify --help
 bundle exec bin/codex-notify-hook --help
 ```
 
+These commands run the checkout code. In contrast, unqualified
+`codex-notify` and `codex-notify-hook` run the versions installed in the active
+Ruby environment. Checkout Bundler and `.ruby-version` behavior is not a
+runtime requirement of the installed commands.
+
 ### Gem packaging
 
 The gem version is defined once as `CodexNotify::VERSION`. The initial package
@@ -639,15 +706,26 @@ uses version `0.1.0`. Before 1.0, patch releases contain compatible fixes and
 minor releases may contain features or compatibility changes. Releases from
 1.0 onward follow Semantic Versioning.
 
-Build the gem locally, inspect its packaged file list, and verify an isolated
-installation outside the source checkout:
+Before preparing a package, update `CodexNotify::VERSION` in
+`lib/codex_notify/version.rb`, then run the full tests. Build the gem locally,
+inspect its packaged file list, and verify an isolated installation outside the
+source checkout:
 
 ```bash
+bundle exec rake
 bundle exec rake gem
 bundle exec rake package:contents
 bundle exec rake package:verify
 ```
 
-Build artifacts are written under `pkg/` and must not be committed. Publishing
-to RubyGems.org is not part of the current packaging workflow; no publish task
-or publishing credentials are configured by this project.
+Maintainers are responsible for confirming that the package version and
+metadata are correct, both executables pass the isolated verification, and the
+file list contains only the intended `lib/`, `bin/`, README, and license files.
+It must not contain `.env`, `.session`, `.bundle/`, `vendor/`, Git metadata,
+tests, local state, tokens, channel IDs, payloads, or publish credentials.
+
+Build artifacts are written under `pkg/` and must not be committed. Tagging and
+release notes should describe the validated version and compatibility impact.
+Publishing to RubyGems.org is a separate maintainer decision and is not part of
+the current packaging workflow; no publish task or publishing credentials are
+configured by this project.
