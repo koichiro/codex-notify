@@ -726,6 +726,42 @@ tests, local state, tokens, channel IDs, payloads, or publish credentials.
 
 Build artifacts are written under `pkg/` and must not be committed. Tagging and
 release notes should describe the validated version and compatibility impact.
-Publishing to RubyGems.org is a separate maintainer decision and is not part of
-the current packaging workflow; no publish task or publishing credentials are
-configured by this project.
+
+### Maintainer release workflow
+
+RubyGems.org publication uses the `Release` GitHub Actions workflow. It is the
+only supported publishing path; do not run `gem push` or `rake release` from a
+development checkout. The Rake release tasks exist for the official RubyGems
+release action and reject execution outside the approved workflow context.
+
+Before the first release, configure a pending RubyGems Trusted Publisher with
+these exact identifiers:
+
+- GitHub owner: `koichiro`
+- Repository: `codex-notify`
+- Workflow filename: `release.yml`
+- GitHub environment: `release`
+- Gem name: `codex-notify`
+
+The GitHub `release` environment must allow deployments only from `main` and
+should require maintainer approval. Do not add a RubyGems API key, password, or
+credential file to the repository or environment; publication authenticates
+with a short-lived GitHub Actions OIDC token.
+
+To release, open **Actions**, select **Release**, choose **Run workflow** from
+`main`, and enter the stable SemVer value already present in
+`CodexNotify::VERSION`. The workflow verifies the input, gemspec, current
+`main` commit, remote tag, RubyGems version state, test coverage, package
+contents, and isolated installation before requesting approval for the
+`release` environment. After approval it repeats the mutable checks, creates
+the annotated `v<version>` tag, publishes the gem, and creates the matching
+GitHub Release with the gem and its SHA-256 checksum.
+
+A failed publishing job may be retried only when RubyGems.org does not contain
+the requested version and an existing tag, if any, is annotated and points to
+the exact same release commit. Never delete, move, or replace a published tag
+or gem version. If RubyGems publication succeeded but GitHub Release creation
+failed, do not rerun publication: verify the immutable tag and public gem, then
+create or finish only the GitHub Release and record the public gem's SHA-256.
+Conflicting tags, commits, versions, existing releases, or unavailable registry
+state must be investigated and fixed forward with a new version when needed.

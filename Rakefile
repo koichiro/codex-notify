@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bundler/setup'
+require 'bundler/gem_helper'
 require 'rbconfig'
 require 'rubygems/package'
 require 'rubygems/package_task'
@@ -12,6 +13,25 @@ raise 'failed to load codex-notify.gemspec' unless gemspec
 
 Gem::PackageTask.new(gemspec).define
 Rake::Task[File.join('pkg', gemspec.file_name)].enhance([gemspec_path])
+
+Bundler::GemHelper.install_tasks(name: gemspec.name)
+
+namespace :release do
+  desc 'Require the approved GitHub Actions release context'
+  task :guard_environment do
+    expected_workflow = %r{\Akoichiro/codex-notify/\.github/workflows/release\.yml@refs/heads/main\z}
+    release_version = ENV.fetch('RELEASE_VERSION', '')
+    valid_context = ENV['GITHUB_ACTIONS'] == 'true' &&
+                    ENV['GITHUB_EVENT_NAME'] == 'workflow_dispatch' &&
+                    ENV['GITHUB_REF'] == 'refs/heads/main' &&
+                    ENV.fetch('GITHUB_WORKFLOW_REF', '').match?(expected_workflow) &&
+                    release_version == gemspec.version.to_s
+
+    raise 'release is permitted only from the approved release.yml workflow on main' unless valid_context
+  end
+end
+
+Rake::Task['release:guard_clean'].enhance(['release:guard_environment'])
 
 desc 'Build the gem and print its packaged file list'
 task 'package:contents' => :gem do
