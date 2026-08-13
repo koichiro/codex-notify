@@ -92,6 +92,7 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
 │   └── hooks.json.example
 ├── .env.sample
 ├── .gitignore
+├── CHANGELOG.md
 ├── README.md
 ├── bin/
 │   ├── codex-notify-hook
@@ -114,12 +115,11 @@ This keeps all prompts and replies for the same Codex session in one Slack threa
 
 ## Installation
 
-codex-notify requires Ruby 3.4 or newer. Until publishing to RubyGems.org is
-separately approved, install a released or locally built gem package into the
-active Ruby environment:
+codex-notify requires Ruby 3.4 or newer. Install the public gem into the Ruby
+environment that will run Codex and its Hooks:
 
 ```bash
-gem install /path/to/codex-notify-X.Y.Z.gem
+gem install codex-notify
 ```
 
 The gem installs both commands. Confirm their locations and the installed
@@ -129,12 +129,13 @@ version from the same Ruby environment that will run them:
 command -v codex-notify
 command -v codex-notify-hook
 gem list --local --exact codex-notify
+ruby -rcodex_notify -e 'puts CodexNotify::VERSION'
 ```
 
-To upgrade, install the newer package into that Ruby environment:
+To upgrade, update the gem in that Ruby environment:
 
 ```bash
-gem install /path/to/codex-notify-NEW_VERSION.gem
+gem update codex-notify
 ```
 
 To uninstall it:
@@ -149,6 +150,15 @@ outbox. Ruby managers such as rbenv and asdf normally keep separate gems for
 each Ruby installation. After switching or upgrading Ruby, reinstall the gem,
 rerun `command -v codex-notify-hook`, and update Hook configuration if the
 absolute executable path changed.
+
+Maintainers can install a locally built package for pre-release verification:
+
+```bash
+gem install /path/to/codex-notify-X.Y.Z.gem
+```
+
+This local-package path is for development and release validation; normal users
+should install from RubyGems.org.
 
 ## Configuration
 
@@ -702,9 +712,8 @@ runtime requirement of the installed commands.
 ### Gem packaging
 
 The gem version is defined once as `CodexNotify::VERSION`. The initial package
-uses version `0.1.0`. Before 1.0, patch releases contain compatible fixes and
-minor releases may contain features or compatibility changes. Releases from
-1.0 onward follow Semantic Versioning.
+uses version `1.0.0`. Releases follow Semantic Versioning, with compatibility
+and migration details recorded in `CHANGELOG.md`.
 
 Before preparing a package, update `CodexNotify::VERSION` in
 `lib/codex_notify/version.rb`, then run the full tests. Build the gem locally,
@@ -720,9 +729,10 @@ bundle exec rake package:verify
 
 Maintainers are responsible for confirming that the package version and
 metadata are correct, both executables pass the isolated verification, and the
-file list contains only the intended `lib/`, `bin/`, README, and license files.
-It must not contain `.env`, `.session`, `.bundle/`, `vendor/`, Git metadata,
-tests, local state, tokens, channel IDs, payloads, or publish credentials.
+file list contains only the intended `lib/`, `bin/`, CHANGELOG, README, and
+license files. It must not contain `.env`, `.session`, `.bundle/`, `vendor/`,
+Git metadata, tests, local state, tokens, channel IDs, payloads, or publish
+credentials.
 
 Build artifacts are written under `pkg/` and must not be committed. Tagging and
 release notes should describe the validated version and compatibility impact.
@@ -743,6 +753,10 @@ these exact identifiers:
 - GitHub environment: `release`
 - Gem name: `codex-notify`
 
+Pending publishers expire 12 hours after creation. Create or recreate the
+pending publisher only after all release checks are ready, then complete the
+first publication within that window.
+
 The GitHub `release` environment must allow deployments only from `main` and
 should require maintainer approval. Do not add a RubyGems API key, password, or
 credential file to the repository or environment; publication authenticates
@@ -755,7 +769,8 @@ To release, open **Actions**, select **Release**, choose **Run workflow** from
 contents, and isolated installation before requesting approval for the
 `release` environment. After approval it repeats the mutable checks, creates
 the annotated `v<version>` tag, publishes the gem, and creates the matching
-GitHub Release with the gem and its SHA-256 checksum.
+GitHub Release with the reviewed `.github/release-notes/v<version>.md`, the gem,
+and its SHA-256 checksum.
 
 A failed publishing job may be retried only when RubyGems.org does not contain
 the requested version and an existing tag, if any, is annotated and points to

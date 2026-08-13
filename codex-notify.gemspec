@@ -15,12 +15,15 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = Gem::Requirement.new('>= 3.4.0')
 
   spec.metadata = {
-    'source_code_uri' => spec.homepage,
-    'bug_tracker_uri' => "#{spec.homepage}/issues"
+    'source_code_uri' => "#{spec.homepage}/tree/v#{spec.version}",
+    'bug_tracker_uri' => "#{spec.homepage}/issues",
+    'changelog_uri' => "#{spec.homepage}/blob/v#{spec.version}/CHANGELOG.md",
+    'documentation_uri' => "#{spec.homepage}#readme",
+    'rubygems_mfa_required' => 'true'
   }
 
   spec.files = Dir.chdir(__dir__) do
-    (Dir['lib/**/*.rb'] + %w[bin/codex-notify bin/codex-notify-hook LICENSE README.md]).sort
+    (Dir['lib/**/*.rb'] + %w[bin/codex-notify bin/codex-notify-hook CHANGELOG.md LICENSE README.md]).sort
   end
   spec.bindir = 'bin'
   spec.executables = %w[codex-notify codex-notify-hook]
