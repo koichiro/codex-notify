@@ -1,0 +1,125 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable SemVer version to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Ruby ${{ matrix.ruby-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby-version:
+          - "3.4"
+          - "4.0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          bundler-cache: true
+
+      - name: Run complete test suite and coverage check
+        run: bundle exec rake
+
+  validate-release:
+    name: Validate release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+
+      - name: Validate version, commit, tag, and registries
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: >-
+          bundle exec ruby script/release_guard.rb
+          --version "$RELEASE_VERSION"
+          --expected-sha "$GITHUB_SHA"
+          --repository "$GITHUB_REPOSITORY"
+
+      - name: Inspect package contents
+        run: bundle exec rake package:contents
+
+      - name: Verify isolated package installation
+        run: bundle exec rake package:verify
+
+  publish:
+    name: Publish to RubyGems.org
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs:
+      - test
+      - validate-release
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    concurrency:
+      group: release-${{ inputs.version }}
+      cancel-in-progress: false
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Checkout the approved main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+
+      - name: Revalidate mutable release state
+        run: >-
+          bundle exec ruby script/release_guard.rb
+          --version "$RELEASE_VERSION"
+          --expected-sha "$GITHUB_SHA"
+          --repository "$GITHUB_REPOSITORY"
+
+      - name: Publish with RubyGems Trusted Publishing
+        uses: rubygems/release-gem@7f9650160c1a4e7989fdc9855807bdbd421d8b6b # v1
+
+      - name: Create GitHub Release with checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${RELEASE_VERSION}"
+          gem_path="pkg/codex-notify-${RELEASE_VERSION}.gem"
+          checksum_path="${gem_path}.sha256"
+          checksum="$(sha256sum "$gem_path" | cut -d ' ' -f 1)"
+          printf '%s  %s\n' "$checksum" "$(basename "$gem_path")" > "$checksum_path"
+          gh release create "$tag" "$gem_path" "$checksum_path" \
+            --verify-tag \
+            --generate-notes \
+            --title "codex-notify ${RELEASE_VERSION}" \
+            --notes "SHA-256: \`$checksum\`"
