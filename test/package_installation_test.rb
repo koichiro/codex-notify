@@ -11,6 +11,7 @@ require 'tmpdir'
 class PackageInstallationTest < Minitest::Test
   ROOT = Pathname(__dir__).join('..').expand_path.freeze
   FIXED_PACKAGE_FILES = %w[
+    CHANGELOG.md
     LICENSE
     README.md
     bin/codex-notify

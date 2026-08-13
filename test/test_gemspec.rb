@@ -11,6 +11,7 @@ class CodexNotifyGemspecTest < Minitest::Test
   FIXED_PACKAGE_FILES = %w[
     bin/codex-notify
     bin/codex-notify-hook
+    CHANGELOG.md
     LICENSE
     README.md
   ].freeze
@@ -29,12 +30,16 @@ class CodexNotifyGemspecTest < Minitest::Test
     spec = load_gemspec
 
     assert_equal 'codex-notify', spec.name
+    assert_equal '1.0.0', spec.version.to_s
     assert_equal CodexNotify::VERSION, spec.version.to_s
     assert_equal ['Koichiro Ohba'], spec.authors
     assert_equal ['MIT'], spec.licenses
     assert_equal 'https://github.com/koichiro/codex-notify', spec.homepage
-    assert_equal spec.homepage, spec.metadata.fetch('source_code_uri')
+    assert_equal "#{spec.homepage}/tree/v#{spec.version}", spec.metadata.fetch('source_code_uri')
     assert_equal "#{spec.homepage}/issues", spec.metadata.fetch('bug_tracker_uri')
+    assert_equal "#{spec.homepage}/blob/v#{spec.version}/CHANGELOG.md", spec.metadata.fetch('changelog_uri')
+    assert_equal "#{spec.homepage}#readme", spec.metadata.fetch('documentation_uri')
+    assert_equal 'true', spec.metadata.fetch('rubygems_mfa_required')
     assert spec.required_ruby_version.satisfied_by?(Gem::Version.new('3.4.0'))
     refute spec.required_ruby_version.satisfied_by?(Gem::Version.new('3.3.9'))
     assert_equal ['lib'], spec.require_paths

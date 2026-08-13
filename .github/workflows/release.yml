@@ -63,6 +63,11 @@ jobs:
           --expected-sha "$GITHUB_SHA"
           --repository "$GITHUB_REPOSITORY"
 
+      - name: Validate reviewed release notes
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: test -s ".github/release-notes/v${RELEASE_VERSION}.md"
+
       - name: Inspect package contents
         run: bundle exec rake package:contents
 
@@ -116,10 +121,15 @@ jobs:
           tag="v${RELEASE_VERSION}"
           gem_path="pkg/codex-notify-${RELEASE_VERSION}.gem"
           checksum_path="${gem_path}.sha256"
+          release_notes_path=".github/release-notes/v${RELEASE_VERSION}.md"
+          composed_notes_path="${RUNNER_TEMP}/codex-notify-${RELEASE_VERSION}-release-notes.md"
           checksum="$(sha256sum "$gem_path" | cut -d ' ' -f 1)"
           printf '%s  %s\n' "$checksum" "$(basename "$gem_path")" > "$checksum_path"
+          {
+            cat "$release_notes_path"
+            printf '\n\n## Verification\n\nSHA-256: `%s`\n' "$checksum"
+          } > "$composed_notes_path"
           gh release create "$tag" "$gem_path" "$checksum_path" \
             --verify-tag \
-            --generate-notes \
             --title "codex-notify ${RELEASE_VERSION}" \
-            --notes "SHA-256: \`$checksum\`"
+            --notes-file "$composed_notes_path"

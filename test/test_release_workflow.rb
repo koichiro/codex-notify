@@ -26,6 +26,20 @@ class ReleaseWorkflowTest < Minitest::Test
     assert_includes publish.fetch('if'), "github.ref == 'refs/heads/main'"
   end
 
+  def test_reviewed_release_notes_are_validated_and_used
+    validate = workflow.fetch('jobs').fetch('validate-release').fetch('steps')
+    notes_validation = validate.find { |step| step.fetch('name', '') == 'Validate reviewed release notes' }
+    refute_nil notes_validation
+    assert_includes notes_validation.fetch('run'), '.github/release-notes/v${RELEASE_VERSION}.md'
+
+    publish = workflow.fetch('jobs').fetch('publish').fetch('steps')
+    release = publish.find { |step| step.fetch('name', '') == 'Create GitHub Release with checksum' }
+    refute_nil release
+    assert_includes release.fetch('run'), '.github/release-notes/v${RELEASE_VERSION}.md'
+    assert_includes release.fetch('run'), '--notes-file'
+    refute_includes release.fetch('run'), '--generate-notes'
+  end
+
   def test_all_external_actions_are_pinned_and_checkout_credentials_are_not_persisted
     uses_steps = workflow.fetch('jobs').values.flat_map { |job| job.fetch('steps') }.select { |step| step.key?('uses') }
 
