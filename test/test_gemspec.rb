@@ -30,7 +30,7 @@ class CodexNotifyGemspecTest < Minitest::Test
     spec = load_gemspec
 
     assert_equal 'codex-notify', spec.name
-    assert_equal '1.0.0', spec.version.to_s
+    assert_equal '1.0.1', spec.version.to_s
     assert_equal CodexNotify::VERSION, spec.version.to_s
     assert_equal ['Koichiro Ohba'], spec.authors
     assert_equal ['MIT'], spec.licenses
