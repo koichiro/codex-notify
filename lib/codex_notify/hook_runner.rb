@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'hook_config'
+require_relative 'internal_task'
 require_relative 'hook_store'
 require_relative 'hook_formatter'
 require_relative 'hook_thread_publisher'
@@ -89,6 +90,11 @@ module CodexNotify
     def handle_user_prompt_submit(event)
       prompt = event.prompt
       session_id = event.session_id
+      if normal? && InternalTask.title_prompt?(prompt)
+        @store.suppress_session(session_id, 'internal_title_generation', preserve_thread: true)
+        return
+      end
+
       if normal? && internal_ambient_suggestions_prompt?(prompt)
         @store.suppress_session(session_id, 'internal_ambient_suggestions')
         return

@@ -675,6 +675,29 @@ Notes:
 
 Hook mode does not require `--no-alt-screen`, because it does not depend on session-log tailing.
 
+### Internal title-generation notifications
+
+Hook normal mode and log-tail mode suppress the known Codex task-title request
+and subsequent events from that internal session (Hook: the final response;
+log-tail: responses and tool events). Detection requires the complete known
+instruction envelope followed by `User prompt:` and a non-empty prompt. Ordinary
+title requests, JSON responses containing `title`, and instructions quoted with
+an introduction, block quote, or code fence remain eligible for notification.
+An exact copy of the internal request is indistinguishable from that request;
+changed or unknown internal templates are not suppressed automatically.
+
+Hook suppression persists across invocations and resume events. The next regular
+prompt clears it; startup/clear events retain their existing reset behavior.
+Suppressing title generation preserves an existing conversation thread. Hook
+debug mode retains its existing diagnostic visibility, including these internal
+requests and responses. Log-tail suppression lasts for the current monitor run
+and applies even with tool notifications enabled; the monitoring-start message
+is unchanged. Starting a monitor after the internal prompt cannot classify its
+response from JSON shape alone.
+
+This filter limits unnecessary outbound content. Existing secret redaction
+still applies immediately before Slack API calls.
+
 ## Development
 
 Install development dependencies in a source checkout:
