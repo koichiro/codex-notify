@@ -28,11 +28,13 @@ module CodexNotify
       end
     end
 
-    def suppress_session(session_id, reason)
+    def suppress_session(session_id, reason, preserve_thread: false)
       update_state do |data|
         key = session_id.to_s
-        data['threads'].delete(key)
-        data['generations'][key] = data['generations'].fetch(key, 0).to_i + 1
+        unless preserve_thread
+          data['threads'].delete(key)
+          data['generations'][key] = data['generations'].fetch(key, 0).to_i + 1
+        end
         data['suppressed_sessions'][key] = {
           'reason' => reason.to_s,
           'suppressed_at' => Time.now.utc.iso8601

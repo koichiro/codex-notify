@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require_relative 'internal_task'
 
 module CodexNotify
   module StreamProcessor
@@ -8,6 +9,13 @@ module CodexNotify
 
     def process_codex_log_stream(stream, token:, channel:, root_message:, initial_prompt: nil, user_name: 'user', include_tools: false,
                                  throttle_sec: 0.0, post_func:, sleep_func: Kernel.method(:sleep), publisher: nil)
+      suppressed_sessions = {}
+      if InternalTask.title_prompt?(initial_prompt)
+        suppressed_sessions['__default__'] = true
+        initial_prompt = nil
+      end
+      stream = visible_log_events(stream, suppressed_sessions)
+
       if publisher
         return process_durable_stream(
           stream, root_message:, initial_prompt:, user_name:, include_tools:, publisher:
@@ -43,15 +51,7 @@ module CodexNotify
         thread_ts_by_session['__default__'] = post_root.call(message)
       end
 
-      stream.each do |raw|
-        line = raw.strip
-        next if line.empty?
-
-        event = JSON.parse(line)
-        session_id = CodexNotify::LogEventParser.extract_session_id(event) || '__default__'
-        extracted_events = CodexNotify::LogEventParser.extract_events(event)
-        next if extracted_events.empty?
-
+      stream.each do |session_id, extracted_events|
         extracted_events.each do |kind, text, part_type|
           next if text.empty?
           next if part_type == 'tool' && !include_tools
@@ -78,8 +78,6 @@ module CodexNotify
 
           post_message.call(message, thread_ts)
         end
-      rescue JSON::ParserError
-        next
       end
 
       0
@@ -97,15 +95,7 @@ module CodexNotify
         return 1 unless drain_succeeded?(publisher)
       end
 
-      stream.each do |raw|
-        line = raw.strip
-        next if line.empty?
-
-        event = JSON.parse(line)
-        session_id = CodexNotify::LogEventParser.extract_session_id(event) || '__default__'
-        extracted_events = CodexNotify::LogEventParser.extract_events(event)
-        next if extracted_events.empty?
-
+      stream.each do |session_id, extracted_events|
         extracted_events.each do |kind, body, part_type|
           next if body.empty?
           next if part_type == 'tool' && !include_tools
@@ -126,11 +116,29 @@ module CodexNotify
           end
           return 1 unless drain_succeeded?(publisher)
         end
-      rescue JSON::ParserError
-        next
       end
 
       0
+    end
+
+    def visible_log_events(stream, suppressed_sessions)
+      Enumerator.new do |output|
+        current_session = '__default__'
+        stream.each do |raw|
+          begin
+            event = JSON.parse(raw)
+          rescue JSON::ParserError
+            next
+          end
+          session_id = LogEventParser.extract_session_id(event)
+          current_session = session_id || current_session
+          events = LogEventParser.extract_events(event).reject do |kind, text, _type|
+            suppressed_sessions[current_session] = InternalTask.title_prompt?(text) if kind == 'user'
+            suppressed_sessions[current_session]
+          end
+          output << [session_id || '__default__', events] unless events.empty?
+        end
+      end
     end
 
     def drain_succeeded?(publisher)
