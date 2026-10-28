@@ -131,6 +131,10 @@ module CodexNotify
             next
           end
           session_id = LogEventParser.extract_session_id(event)
+          if session_id && current_session == '__default__' && suppressed_sessions.key?('__default__')
+            # Bind anonymous suppression to the first session, not every later ID.
+            suppressed_sessions[session_id] = suppressed_sessions.delete('__default__')
+          end
           current_session = session_id || current_session
           events = LogEventParser.extract_events(event).reject do |kind, text, _type|
             suppressed_sessions[current_session] = InternalTask.suppression_reason(text) if kind == 'user'

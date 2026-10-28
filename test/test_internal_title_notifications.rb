@@ -115,6 +115,53 @@ class InternalTitleNotificationsTest < Minitest::Test
     end
   end
 
+  def test_log_initial_suppression_follows_the_first_identified_session
+    [composer_prediction_prompt, internal_title_prompt].each do |prompt|
+      [false, true].each do |durable|
+        [false, true].each do |metadata_first|
+          Dir.mktmpdir do |dir|
+            client = FakeSlackClient.new
+            if durable
+              store = CodexNotify::HookStore.new(File.join(dir, 'state.json'))
+              store.save_thread_ts(Digest::SHA256.hexdigest("log\0internal"), '1000.01')
+            end
+            stream = [log_event(nil, 'agent_message', 'Internal before ID')]
+            stream << JSON.generate(type: 'session_meta', payload: { id: 'internal' }) if metadata_first
+            stream.concat([
+              log_event('internal', 'agent_message', 'Internal after ID'),
+              log_event('other', 'user_message', 'Fix tests'),
+              log_event('other', 'agent_message', 'Fixed tests'),
+              log_event('internal', 'agent_message', 'Still internal'),
+              log_event('internal', 'user_message', 'Continue with my task'),
+              log_event('internal', 'agent_message', 'Continued')
+            ])
+            run_stream(dir, client, stream, durable: durable, initial_prompt: prompt)
+            assert_equal 5, client.posts.size # monitor + four ordinary messages
+            refute client.posts.any? { |text, _| text.include?('Internal') || text.include?('Still internal') }
+            assert_includes client.posts[1].first, 'Fix tests'
+            assert_includes client.posts[-2].first, 'Continue with my task'
+            assert_includes client.posts.last.first, 'Continued'
+          end
+        end
+      end
+    end
+  end
+
+  def test_log_ordinary_prompt_clears_initial_suppression_before_or_with_session_id
+    [nil, 'human'].each do |prompt_session|
+      stream = [
+        log_event(prompt_session, 'user_message', 'Fix tests'),
+        log_event('human', 'agent_message', 'Fixed tests')
+      ]
+      suppressed_sessions = { '__default__' => true }
+      events = CodexNotify::StreamProcessor.visible_log_events(stream, suppressed_sessions).flat_map(&:last)
+      assert_equal %w[user assistant], events.map(&:first)
+      assert_equal ['Fix tests', 'Fixed tests'], events.map { |_, text, _| text }
+      refute suppressed_sessions['human']
+      refute suppressed_sessions.key?('__default__')
+    end
+  end
+
   def test_classifier_requires_complete_unquoted_envelope
     assert CodexNotify::InternalTask.title_prompt?(internal_title_prompt)
     assert CodexNotify::InternalTask.title_prompt?(internal_title_prompt.gsub("\n", "\r\n"))

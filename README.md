@@ -702,8 +702,10 @@ Suppressing title generation or composer prediction preserves an existing
 conversation thread. Hook debug mode retains its existing diagnostic visibility, including these internal
 requests and responses. Log-tail suppression lasts for the current monitor run
 and applies even with tool notifications enabled; the monitoring-start message
-is unchanged. Starting a monitor after the internal prompt cannot classify its
-response from JSON shape alone.
+is unchanged. An internal initial prompt supplied with `--prompt` also suppresses
+responses after the first log session ID becomes available, until an ordinary
+user event in that session clears suppression. Starting a monitor after the
+internal prompt cannot classify its response from JSON shape alone.
 
 This filter limits unnecessary outbound content. Existing secret redaction
 still applies immediately before Slack API calls.
