@@ -1,0 +1,31 @@
+name: Dependency audit
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    # Daily at 09:17 Asia/Tokyo (00:17 UTC).
+    - cron: "17 0 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit locked Ruby dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+
+      - name: Refresh advisory database and audit locked gems and Bundler
+        run: bundle exec ruby script/dependency_audit.rb
