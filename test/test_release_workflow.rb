@@ -53,6 +53,19 @@ class ReleaseWorkflowTest < Minitest::Test
     end
   end
 
+  def test_ci_release_and_audit_use_the_same_pinned_ruby_setup
+    workflows = %w[ci release dependency-audit].map do |name|
+      YAML.safe_load_file(ROOT.join('.github/workflows', "#{name}.yml"), aliases: false)
+    end
+    setup_actions = workflows.flat_map do |entry|
+      entry.fetch('jobs').values.flat_map { |job| job.fetch('steps', []) }
+    end.filter_map { |step| step['uses'] if step.fetch('uses', '').start_with?('ruby/setup-ruby@') }
+
+    refute_empty setup_actions
+    assert_equal 1, setup_actions.uniq.size
+    assert_match(/\Aruby\/setup-ruby@[0-9a-f]{40}\z/, setup_actions.first)
+  end
+
   private
 
   def workflow
