@@ -27,5 +27,5 @@ jobs:
           ruby-version: "4.0"
           bundler-cache: true
 
-      - name: Update advisory database and audit all locked gems
-        run: bundle exec bundle-audit check --update
+      - name: Refresh advisory database and audit locked gems and Bundler
+        run: bundle exec ruby script/dependency_audit.rb

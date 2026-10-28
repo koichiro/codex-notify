@@ -737,10 +737,11 @@ runtime requirement of the installed commands.
 Dependabot checks Bundler and GitHub Actions updates weekly. CI also runs a
 dependency audit on every push and pull request before tests and package
 verification. The audit checks all gems in `Gemfile.lock`, including development
-and transitive dependencies, against a freshly updated Ruby Advisory Database:
+and transitive dependencies, plus the Bundler version recorded under
+`BUNDLED WITH`, against a freshly updated Ruby Advisory Database:
 
 ```bash
-bundle exec bundle-audit check --update
+bundle exec ruby script/dependency_audit.rb
 ```
 
 The same audit runs daily at 09:17 Japan time (00:17 UTC) on the default branch
@@ -748,7 +749,12 @@ and can be started manually from Actions → Dependency audit → Run workflow.
 Scheduled runs begin after the workflow is merged into the default branch.
 Known vulnerabilities, insecure gem sources, and advisory database update
 failures fail the audit rather than being ignored. Local audits require network
-access; the test suite itself remains offline.
+access; the test suite itself remains offline. The audit script requires an
+existing advisory database to be a Git repository and refresh successfully.
+Unlike stock `bundle-audit check --update`, which may warn and continue with
+stale data when the database is not a Git repository, this script fails in that
+case. A missing database is downloaded before scanning. A missing `BUNDLED WITH`
+version also fails the audit instead of silently skipping Bundler.
 
 Pull requests additionally run GitHub's Dependency Review Action against the
 GitHub Advisory Database, which also powers Dependabot alerts. Newly introduced
