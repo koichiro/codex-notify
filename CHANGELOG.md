@@ -3,6 +3,27 @@
 All notable changes to codex-notify are documented in this file. Releases from
 1.0.0 onward follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-10-28
+
+### Fixed
+
+- Suppress known internal Codex task-title and Composer Predictions requests
+  and their responses in Hook normal mode and log-tail mode, reducing internal
+  activity sent to Slack while preserving ordinary prompts and quoted text.
+- Preserve existing Hook conversation threads when suppressing these internal
+  requests, and resume notifications on the next ordinary user prompt.
+- Carry initial internal-prompt suppression to the first identified log
+  session, including when the request is not repeated in the log.
+
+### Development and security
+
+- Add dependency audits before CI tests and package verification, daily and
+  manually triggered audits, and GitHub Dependency Review on pull requests.
+- Audit locked gems and the recorded Bundler version, require fresh advisory
+  data, and prevent project advisory ignores from hiding known vulnerabilities.
+- Update the preferred development Ruby and CI/release jobs to Ruby 4.0.7.
+  Ruby 3.4 or newer remains supported; no configuration migration is required.
+
 ## [1.0.0] - 2026-08-13
 
 ### Added
@@ -47,4 +68,5 @@ All notable changes to codex-notify are documented in this file. Releases from
   `command -v codex-notify-hook`, then review and trust the changed Hook
   definition in Codex.
 
+[1.0.1]: https://github.com/koichiro/codex-notify/releases/tag/v1.0.1
 [1.0.0]: https://github.com/koichiro/codex-notify/releases/tag/v1.0.0
