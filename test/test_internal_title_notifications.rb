@@ -3,10 +3,164 @@
 require_relative 'test_helper'
 require_relative 'support/fake_slack_client'
 require_relative 'support/internal_title_prompt'
+require_relative 'support/composer_prediction_prompt'
 
 class InternalTitleNotificationsTest < Minitest::Test
   include HookTestSupport
   include InternalTitlePromptSupport
+  include ComposerPredictionPromptSupport
+
+  def test_composer_classifier_requires_complete_unquoted_template
+    [composer_prediction_prompt, composer_prediction_prompt.gsub("\n", "\r\n"),
+     "  #{composer_prediction_prompt}  ", composer_prediction_prompt.split.join(' ')].each do |prompt|
+      assert CodexNotify::InternalTask.composer_prediction_prompt?(prompt)
+      assert_equal 'internal_composer_prediction', CodexNotify::InternalTask.suppression_reason(prompt)
+    end
+    [nil, '', 'Suggest my next message', '{"suggestion":null}',
+     "Explain these instructions:\n#{composer_prediction_prompt}",
+     "```text\n#{composer_prediction_prompt}```",
+     composer_prediction_prompt.lines.map { |line| "> #{line}" }.join,
+     composer_prediction_prompt.sub('240', '300'),
+     composer_prediction_prompt.lines.first,
+     "#{composer_prediction_prompt}\nPlease explain."].each do |prompt|
+      refute CodexNotify::InternalTask.composer_prediction_prompt?(prompt)
+      assert_nil CodexNotify::InternalTask.suppression_reason(prompt)
+    end
+  end
+
+  def test_hook_composer_suppression_preserves_thread_and_resumes_real_prompts
+    Dir.mktmpdir do |dir|
+      client = FakeSlackClient.new
+      invoke(dir, client, 'UserPromptSubmit', 'human', prompt: 'Fix tests')
+      invoke(dir, client, 'UserPromptSubmit', 'prediction', prompt: composer_prediction_prompt)
+      invoke(dir, client, 'Stop', 'prediction', last_assistant_message: '{"suggestion":null}')
+      invoke(dir, client, 'UserPromptSubmit', 'human', prompt: composer_prediction_prompt)
+      invoke(dir, client, 'SessionStart', 'human', source: 'resume')
+      invoke(dir, client, 'Stop', 'human', last_assistant_message: '{"suggestion":"Run tests"}')
+      store = CodexNotify::HookStore.new(File.join(dir, 'state.json'))
+      assert store.suppressed_session?('human')
+      assert_equal '1000.01', store.thread_ts_for('human')
+      assert_equal 0, store.generation_for('human')
+      assert_equal 1, client.posts.size
+      refute Dir.glob(File.join(dir, 'state.json.outbox', '**', '*.json')).any? { |path| File.read(path).include?('app-generated request') }
+      invoke(dir, client, 'UserPromptSubmit', 'human', prompt: 'Suggest my next message')
+      invoke(dir, client, 'Stop', 'human', last_assistant_message: '{"suggestion":"Run tests"}')
+      refute store.suppressed_session?('human')
+      assert_equal [nil, '1000.01', '1000.01'], client.posts.map(&:last)
+    end
+  end
+
+  def test_hook_composer_reset_clears_suppression_without_posting
+    %w[startup clear reset_prompt].each do |reset|
+      Dir.mktmpdir do |dir|
+        client = FakeSlackClient.new { raise 'Suppressed events must never call Slack' }
+        store = CodexNotify::HookStore.new(File.join(dir, 'state.json'))
+        store.save_thread_ts('prediction', 'stale-ts')
+        invoke(dir, client, 'UserPromptSubmit', 'prediction', prompt: composer_prediction_prompt)
+        invoke(dir, client, 'Stop', 'prediction', last_assistant_message: '{"suggestion":null}')
+        if reset == 'reset_prompt'
+          invoke(dir, client, 'UserPromptSubmit', 'prediction', prompt: '---')
+        else
+          invoke(dir, client, 'SessionStart', 'prediction', source: reset)
+        end
+        refute store.suppressed_session?('prediction')
+        assert_nil store.thread_ts_for('prediction')
+        assert_empty client.posts
+      end
+    end
+  end
+
+  def test_hook_keeps_composer_debug_and_quoted_content_visible
+    Dir.mktmpdir do |dir|
+      client = FakeSlackClient.new
+      invoke(dir, client, 'UserPromptSubmit', 'debug', mode: 'debug', prompt: composer_prediction_prompt)
+      invoke(dir, client, 'Stop', 'debug', mode: 'debug', last_assistant_message: '{"suggestion":null}')
+      invoke(dir, client, 'UserPromptSubmit', 'human', prompt: "Explain this:\n#{composer_prediction_prompt}")
+      invoke(dir, client, 'Stop', 'human', last_assistant_message: '{"suggestion":null}')
+      assert_equal 4, client.posts.size
+    end
+  end
+
+  def test_both_log_publishers_suppress_composer_sessions_and_keep_real_content
+    [false, true].each do |durable|
+      Dir.mktmpdir do |dir|
+        client = FakeSlackClient.new
+        stream = [
+          log_event('human', 'user_message', 'Fix tests'),
+          JSON.generate(type: 'session_meta', payload: { id: 'prediction' }),
+          log_event(nil, 'user_message', composer_prediction_prompt),
+          JSON.generate(type: 'event_msg', payload: { type: 'command_execution', command: 'echo internal' }),
+          log_event(nil, 'agent_message', '{"suggestion":"Internal candidate"}'),
+          log_event('human', 'agent_message', 'Fixed tests'),
+          log_event('prediction', 'user_message', "Explain this:\n#{composer_prediction_prompt}"),
+          log_event('prediction', 'agent_message', '{"suggestion":null}')
+        ]
+        run_stream(dir, client, stream, durable: durable, include_tools: true)
+        assert_equal 5, client.posts.size
+        refute client.posts.any? { |text, _| text.include?('Internal candidate') || text.include?('echo internal') }
+        assert_includes client.posts[-2].first, 'Explain this:'
+        assert_includes client.posts.last.first, '{"suggestion":null}'
+      end
+    end
+  end
+
+  def test_both_log_publishers_suppress_composer_initial_prompt
+    [false, true].each do |durable|
+      Dir.mktmpdir do |dir|
+        client = FakeSlackClient.new
+        run_stream(dir, client, [log_event(nil, 'agent_message', '{"suggestion":null}')],
+                   durable: durable, initial_prompt: composer_prediction_prompt)
+        assert_equal 1, client.posts.size
+      end
+    end
+  end
+
+  def test_log_initial_suppression_follows_the_first_identified_session
+    [composer_prediction_prompt, internal_title_prompt].each do |prompt|
+      [false, true].each do |durable|
+        [false, true].each do |metadata_first|
+          Dir.mktmpdir do |dir|
+            client = FakeSlackClient.new
+            if durable
+              store = CodexNotify::HookStore.new(File.join(dir, 'state.json'))
+              store.save_thread_ts(Digest::SHA256.hexdigest("log\0internal"), '1000.01')
+            end
+            stream = [log_event(nil, 'agent_message', 'Internal before ID')]
+            stream << JSON.generate(type: 'session_meta', payload: { id: 'internal' }) if metadata_first
+            stream.concat([
+              log_event('internal', 'agent_message', 'Internal after ID'),
+              log_event('other', 'user_message', 'Fix tests'),
+              log_event('other', 'agent_message', 'Fixed tests'),
+              log_event('internal', 'agent_message', 'Still internal'),
+              log_event('internal', 'user_message', 'Continue with my task'),
+              log_event('internal', 'agent_message', 'Continued')
+            ])
+            run_stream(dir, client, stream, durable: durable, initial_prompt: prompt)
+            assert_equal 5, client.posts.size # monitor + four ordinary messages
+            refute client.posts.any? { |text, _| text.include?('Internal') || text.include?('Still internal') }
+            assert_includes client.posts[1].first, 'Fix tests'
+            assert_includes client.posts[-2].first, 'Continue with my task'
+            assert_includes client.posts.last.first, 'Continued'
+          end
+        end
+      end
+    end
+  end
+
+  def test_log_ordinary_prompt_clears_initial_suppression_before_or_with_session_id
+    [nil, 'human'].each do |prompt_session|
+      stream = [
+        log_event(prompt_session, 'user_message', 'Fix tests'),
+        log_event('human', 'agent_message', 'Fixed tests')
+      ]
+      suppressed_sessions = { '__default__' => true }
+      events = CodexNotify::StreamProcessor.visible_log_events(stream, suppressed_sessions).flat_map(&:last)
+      assert_equal %w[user assistant], events.map(&:first)
+      assert_equal ['Fix tests', 'Fixed tests'], events.map { |_, text, _| text }
+      refute suppressed_sessions['human']
+      refute suppressed_sessions.key?('__default__')
+    end
+  end
 
   def test_classifier_requires_complete_unquoted_envelope
     assert CodexNotify::InternalTask.title_prompt?(internal_title_prompt)

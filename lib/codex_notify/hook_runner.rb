@@ -90,8 +90,9 @@ module CodexNotify
     def handle_user_prompt_submit(event)
       prompt = event.prompt
       session_id = event.session_id
-      if normal? && InternalTask.title_prompt?(prompt)
-        @store.suppress_session(session_id, 'internal_title_generation', preserve_thread: true)
+      reason = InternalTask.suppression_reason(prompt) if normal?
+      if reason
+        @store.suppress_session(session_id, reason, preserve_thread: true)
         return
       end
 
