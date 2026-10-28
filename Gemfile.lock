@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    codex-notify (1.0.1)
+    codex-notify (1.0.2)
       dotenv (~> 3.2)
 
 GEM
@@ -31,7 +31,7 @@ DEPENDENCIES
 
 CHECKSUMS
   bundler-audit (0.9.3) sha256=81c8766c71e47d0d28a0f98c7eed028539f21a6ea3cd8f685eb6f42333c9b4e9
-  codex-notify (1.0.1)
+  codex-notify (1.0.2)
   dotenv (3.2.0) sha256=e375b83121ea7ca4ce20f214740076129ab8514cd81378161f11c03853fe619d
   drb (2.2.3) sha256=0b00d6fdb50995fe4a45dea13663493c841112e4068656854646f418fda13373
   minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
