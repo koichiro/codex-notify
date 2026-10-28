@@ -732,6 +732,32 @@ These commands run the checkout code. In contrast, unqualified
 Ruby environment. Checkout Bundler and `.ruby-version` behavior is not a
 runtime requirement of the installed commands.
 
+### Dependency security checks
+
+Dependabot checks Bundler and GitHub Actions updates weekly. CI also runs a
+dependency audit on every push and pull request before tests and package
+verification. The audit checks all gems in `Gemfile.lock`, including development
+and transitive dependencies, against a freshly updated Ruby Advisory Database:
+
+```bash
+bundle exec bundle-audit check --update
+```
+
+The same audit runs daily at 09:17 Japan time (00:17 UTC) on the default branch
+and can be started manually from Actions → Dependency audit → Run workflow.
+Scheduled runs begin after the workflow is merged into the default branch.
+Known vulnerabilities, insecure gem sources, and advisory database update
+failures fail the audit rather than being ignored. Local audits require network
+access; the test suite itself remains offline.
+
+Pull requests additionally run GitHub's Dependency Review Action against the
+GitHub Advisory Database, which also powers Dependabot alerts. Newly introduced
+known vulnerabilities of low severity or higher fail the review for runtime,
+development, and unknown dependency scopes. Results appear in Actions logs and
+job summaries. These checks supplement Dependabot; they do not change repository
+alert or automatic security-update settings. To require successful checks before
+merging, configure branch protection or repository rulesets separately.
+
 ### Gem packaging
 
 The gem version is defined once as `CodexNotify::VERSION`. The initial package

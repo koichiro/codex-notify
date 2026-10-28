@@ -88,8 +88,9 @@ class CodexNotifyGemspecTest < Minitest::Test
     definition = Bundler::Definition.build(ROOT.join('Gemfile'), ROOT.join('Gemfile.lock'), nil)
     dependencies = definition.dependencies.to_h { |dependency| [dependency.name, dependency.groups] }
 
-    assert_equal %w[codex-notify minitest rake], dependencies.keys.sort
+    assert_equal %w[bundler-audit codex-notify minitest rake], dependencies.keys.sort
     assert_equal [:default], dependencies.fetch('codex-notify')
+    assert_equal %i[development test], dependencies.fetch('bundler-audit')
     assert_equal %i[development test], dependencies.fetch('minitest')
     assert_equal %i[development test], dependencies.fetch('rake')
     refute dependencies.key?('dotenv')
