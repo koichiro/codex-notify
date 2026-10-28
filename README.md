@@ -755,8 +755,10 @@ GitHub Advisory Database, which also powers Dependabot alerts. Newly introduced
 known vulnerabilities of low severity or higher fail the review for runtime,
 development, and unknown dependency scopes. Results appear in Actions logs and
 job summaries. These checks supplement Dependabot; they do not change repository
-alert or automatic security-update settings. To require successful checks before
-merging, configure branch protection or repository rulesets separately.
+alert or automatic security-update settings. Dependency Review requires the
+repository's Dependency graph to be enabled under Settings → Advanced Security;
+enabling Dependabot alerts also enables the graph. To require successful checks
+before merging, configure branch protection or repository rulesets separately.
 
 ### Gem packaging
 
