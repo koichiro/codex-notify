@@ -83,6 +83,22 @@ class DependencyAuditTest < Minitest::Test
     assert_includes @stdout.string, 'synthetic-gem 1.0.0 (CVE-2099-0002)'
   end
 
+  def test_project_advisory_ignores_cannot_hide_locked_gem_or_bundler_vulnerabilities
+    @project.join('.bundler-audit.yml').write(YAML.dump('ignore' => %w[CVE-2099-0001 CVE-2099-0002]))
+    %w[2.0.0 1.0.0].each do |bundler_version|
+      write_lockfile(bundler: bundler_version, gem_version: '1.0.0')
+      @stdout.truncate(0)
+      @stdout.rewind
+      scanner = Bundler::Audit::Scanner.new(@project.to_s, 'Gemfile.lock', @database)
+      refute scanner.report.vulnerable? # Stock scanner honors the project's ignores.
+
+      assert_equal 1, audit
+      assert_includes @stdout.string, 'synthetic-gem 1.0.0 (CVE-2099-0002)'
+      assert_includes @stdout.string, 'bundler 1.0.0 (CVE-2099-0001)' if bundler_version == '1.0.0'
+      refute_includes @stdout.string, 'No vulnerabilities found'
+    end
+  end
+
   def test_insecure_sources_still_fail_without_printing_source_credentials
     # A numeric documentation address avoids DNS lookup in bundler-audit.
     write_lockfile(source: 'http://synthetic-user:synthetic-password@203.0.113.1/')

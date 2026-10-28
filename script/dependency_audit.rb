@@ -21,7 +21,7 @@ module CodexNotify
       version = scanner.lockfile.bundler_version
       raise Error, 'Gemfile.lock must record a BUNDLED WITH version' unless version
 
-      report = scanner.report
+      report = scanner.report(ignore: [])
       bundler = Gem::Specification.new do |spec|
         spec.name = 'bundler'
         spec.version = version

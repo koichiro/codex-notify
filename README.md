@@ -754,7 +754,9 @@ existing advisory database to be a Git repository and refresh successfully.
 Unlike stock `bundle-audit check --update`, which may warn and continue with
 stale data when the database is not a Git repository, this script fails in that
 case. A missing database is downloaded before scanning. A missing `BUNDLED WITH`
-version also fails the audit instead of silently skipping Bundler.
+version also fails the audit instead of silently skipping Bundler. Advisory
+`ignore` entries in a project's `.bundler-audit.yml` do not suppress findings
+for locked gems or Bundler in this audit.
 
 Pull requests additionally run GitHub's Dependency Review Action against the
 GitHub Advisory Database, which also powers Dependabot alerts. Newly introduced
