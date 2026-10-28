@@ -718,7 +718,9 @@ are checkout development commands.
 
 The test suite uses `minitest`, runs through `rake`, and enforces 90% line coverage for files under `lib/`.
 
-Ruby 3.4 or newer is supported. CI covers the minimum supported 3.4 series and the 4.0 series used by the project's `.ruby-version`.
+Ruby 3.4 or newer is supported. The preferred development version in
+`.ruby-version` is Ruby 4.0.7. CI covers the minimum supported 3.4 series and
+Ruby 4.0.7; release jobs also use Ruby 4.0.7.
 
 Run either executable from a source checkout through Bundler:
 
