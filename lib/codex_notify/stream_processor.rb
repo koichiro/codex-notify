@@ -10,7 +10,7 @@ module CodexNotify
     def process_codex_log_stream(stream, token:, channel:, root_message:, initial_prompt: nil, user_name: 'user', include_tools: false,
                                  throttle_sec: 0.0, post_func:, sleep_func: Kernel.method(:sleep), publisher: nil)
       suppressed_sessions = {}
-      if InternalTask.title_prompt?(initial_prompt)
+      if InternalTask.suppression_reason(initial_prompt)
         suppressed_sessions['__default__'] = true
         initial_prompt = nil
       end
@@ -133,7 +133,7 @@ module CodexNotify
           session_id = LogEventParser.extract_session_id(event)
           current_session = session_id || current_session
           events = LogEventParser.extract_events(event).reject do |kind, text, _type|
-            suppressed_sessions[current_session] = InternalTask.title_prompt?(text) if kind == 'user'
+            suppressed_sessions[current_session] = InternalTask.suppression_reason(text) if kind == 'user'
             suppressed_sessions[current_session]
           end
           output << [session_id || '__default__', events] unless events.empty?

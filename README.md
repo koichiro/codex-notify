@@ -675,7 +675,7 @@ Notes:
 
 Hook mode does not require `--no-alt-screen`, because it does not depend on session-log tailing.
 
-### Internal title-generation notifications
+### Internal title-generation and composer-prediction notifications
 
 Hook normal mode and log-tail mode suppress the known Codex task-title request
 and subsequent events from that internal session (Hook: the final response;
@@ -686,10 +686,20 @@ an introduction, block quote, or code fence remain eligible for notification.
 An exact copy of the internal request is indistinguishable from that request;
 changed or unknown internal templates are not suppressed automatically.
 
+Hook normal mode and log-tail mode also suppress the known Codex Composer
+Predictions request, which generates a suggested next user message, and
+subsequent internal responses.
+Detection requires the complete known instruction template, including its JSON
+schema, with whitespace normalized. Ordinary requests for suggestions, responses
+containing `suggestion`, and templates quoted with an introduction, block quote,
+or code fence remain eligible for notification. Changed or unknown prediction
+templates are not suppressed automatically, and an exact copy is
+indistinguishable from the internal request.
+
 Hook suppression persists across invocations and resume events. The next regular
 prompt clears it; startup/clear events retain their existing reset behavior.
-Suppressing title generation preserves an existing conversation thread. Hook
-debug mode retains its existing diagnostic visibility, including these internal
+Suppressing title generation or composer prediction preserves an existing
+conversation thread. Hook debug mode retains its existing diagnostic visibility, including these internal
 requests and responses. Log-tail suppression lasts for the current monitor run
 and applies even with tool notifications enabled; the monitoring-start message
 is unchanged. Starting a monitor after the internal prompt cannot classify its
